@@ -1,0 +1,7 @@
+process.exe
+output_*.txt
+angles_folder_*.png
+__pycache__/
+*.pyc
+INS_Data/
+data.txt
