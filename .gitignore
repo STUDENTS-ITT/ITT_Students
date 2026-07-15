@@ -1,7 +1,25 @@
+# Бинарники
+*.exe
 process.exe
+calculator.exe
+main.exe
+
+# Артефакты запусков
 /output_*.txt
 /angles_folder_*.png
+comparison_errors.png
+comparison.png
+data.txt
+
+# Данные
+INS_Data/
+
+# IDE
+.idea/
+
+# Python
 __pycache__/
 *.pyc
-INS_Data/
-data.txt
+
+# Email
+*.eml

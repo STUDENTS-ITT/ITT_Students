@@ -36,5 +36,5 @@ def hybrid(data, win):
             out.append(prog[i])
     return out
 
-data = [0, 0, 10, 0, 0]
+data = [random.randint(1, 100) for _ in range(100)]
 print(hybrid(data, 5))

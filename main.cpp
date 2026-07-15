@@ -92,12 +92,12 @@ int main() {
     // 4. Сглаживание
     vector<double> ax_sm, ay_sm, az_sm, wx_sm, wy_sm, wz_sm;
 #if USE_GAUSSIAN == 2
-    hybridSmooth(ax, ax_sm, WINDOW);
-    hybridSmooth(ay, ay_sm, WINDOW);
-    hybridSmooth(az, az_sm, WINDOW);
-    hybridSmooth(wx, wx_sm, WINDOW);
-    hybridSmooth(wy, wy_sm, WINDOW);
-    hybridSmooth(wz, wz_sm, WINDOW);
+    progressiveMean(ax, ax_sm);
+    progressiveMean(ay, ay_sm);
+    progressiveMean(az, az_sm);
+    progressiveMean(wx, wx_sm);
+    progressiveMean(wy, wy_sm);
+    progressiveMean(wz, wz_sm);
 #elif USE_GAUSSIAN == 1
     vector<double> kernel = gaussianKernel(WINDOW);
     gaussianFilter(ax, ax_sm, kernel);
@@ -189,10 +189,19 @@ int main() {
 
     cout << string(142, '=') << "\n";
     cout << "\nВсего строк: " << n << "\n";
+    double rad2arcmin = 180.0 / PI * 60.0;
     cout << "Средние углы RAW:     Pitch = " << setprecision(4) << mean_p_r
-         << " rad  Roll = " << mean_r_r << " rad  Yaw = " << mean_y_r << " rad\n";
-    cout << "Средние углы SMOOTH:  Pitch = " << mean_p_s
-         << " rad  Roll = " << mean_r_s << " rad  Yaw = " << mean_y_s << " rad\n\n";
+         << " rad (" << setprecision(2) << mean_p_r * rad2arcmin << "') "
+         << " Roll = " << setprecision(4) << mean_r_r
+         << " rad (" << setprecision(2) << mean_r_r * rad2arcmin << "') "
+         << " Yaw = " << setprecision(4) << mean_y_r
+         << " rad (" << setprecision(2) << mean_y_r * rad2arcmin << "')\n";
+    cout << "Средние углы SMOOTH:  Pitch = " << setprecision(4) << mean_p_s
+         << " rad (" << setprecision(2) << mean_p_s * rad2arcmin << "') "
+         << " Roll = " << setprecision(4) << mean_r_s
+         << " rad (" << setprecision(2) << mean_r_s * rad2arcmin << "') "
+         << " Yaw = " << setprecision(4) << mean_y_s
+         << " rad (" << setprecision(2) << mean_y_s * rad2arcmin << "')\n\n";
 
     // 7. Сохранение в файл (рядом с IMU.txt)
     string out_name = imuFolder + "/output.txt";
@@ -226,12 +235,12 @@ int main() {
         fout << "\n# Latitude = " << lat << " deg\n";
         fout << "# g = " << g << " m/s2\n";
         fout << "# Window = " << WINDOW << " samples\n";
-        fout << "# Mean Pitch raw = " << mean_p_r << " rad\n";
-        fout << "# Mean Roll raw  = " << mean_r_r << " rad\n";
-        fout << "# Mean Yaw raw   = " << mean_y_r << " rad\n";
-        fout << "# Mean Pitch sm  = " << mean_p_s << " rad\n";
-        fout << "# Mean Roll sm   = " << mean_r_s << " rad\n";
-        fout << "# Mean Yaw sm    = " << mean_y_s << " rad\n";
+        fout << "# Mean Pitch raw = " << mean_p_r << " rad (" << mean_p_r * rad2arcmin << " ')\n";
+        fout << "# Mean Roll raw  = " << mean_r_r << " rad (" << mean_r_r * rad2arcmin << " ')\n";
+        fout << "# Mean Yaw raw   = " << mean_y_r << " rad (" << mean_y_r * rad2arcmin << " ')\n";
+        fout << "# Mean Pitch sm  = " << mean_p_s << " rad (" << mean_p_s * rad2arcmin << " ')\n";
+        fout << "# Mean Roll sm   = " << mean_r_s << " rad (" << mean_r_s * rad2arcmin << " ')\n";
+        fout << "# Mean Yaw sm    = " << mean_y_s << " rad (" << mean_y_s * rad2arcmin << " ')\n";
         fout.close();
         cout << "Результаты сохранены в " << out_name << "\n\n";
     }
