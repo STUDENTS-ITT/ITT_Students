@@ -7,8 +7,7 @@ main.exe
 # Артефакты запусков
 /output_*.txt
 /angles_folder_*.png
-comparison_errors.png
-comparison.png
+comparison_plot.png
 data.txt
 
 # Данные
