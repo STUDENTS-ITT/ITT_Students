@@ -1,14 +1,9 @@
 # Бинарники
 *.exe
-process.exe
-calculator.exe
-main.exe
 
 # Артефакты запусков
 /output_*.txt
-/angles_folder_*.png
-comparison_plot.png
-data.txt
+*.eml
 
 # Данные
 INS_Data/
@@ -19,6 +14,3 @@ INS_Data/
 # Python
 __pycache__/
 *.pyc
-
-# Email
-*.eml

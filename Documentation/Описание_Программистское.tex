@@ -1,0 +1,246 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=2cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\definecolor{titleblue}{RGB}{26,35,126}
+\definecolor{codebg}{RGB}{30,30,30}
+\definecolor{codefg}{RGB}{212,212,212}
+\definecolor{kw}{RGB}{86,156,214}
+\definecolor{fn}{RGB}{220,220,170}
+\definecolor{cm}{RGB}{106,153,85}
+\definecolor{st}{RGB}{206,145,120}
+
+\lstdefinestyle{py}{
+  language=Python,
+  basicstyle=\ttfamily\small\color{codefg},
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cm}\itshape,
+  stringstyle=\color{st},
+  functionnamestyle=\color{fn},
+  numbers=none,
+  frame=single,
+  rulecolor=\color{codebg},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  xleftmargin=1cm,
+  xrightmargin=1cm,
+  aboveskip=10pt,
+  belowskip=10pt,
+}
+
+\lstset{style=py}
+
+\title{\color{titleblue}\textbf{Описание функций сглаживания\\(Python, программистская версия)}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% === 1. BOXCAR ===
+\section{Boxcar}
+
+\subsection{Сигнатура}
+
+\begin{lstlisting}
+def boxcar(win: int, data: list) -> list
+\end{lstlisting}
+
+\subsection{Параметры}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Параметр} & \textbf{Тип} & \textbf{Описание} \\
+\hline
+\texttt{win}  & \texttt{int}         & Размер окна усреднения \\
+\texttt{data} & \texttt{list[float]} & Входной сигнал длиной $N$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Алгоритм}
+
+\begin{lstlisting}
+def boxcar(win, data):
+    half = win // 2
+    n = len(data)
+    avg = []
+    for i in range(n):
+        start = max(0, i + 1 - half)
+        end = min(half + i, n)
+        sum_array = sum(data[start:end])
+        aver = sum_array / len(data[start:end])
+        avg.append(aver)
+    return avg
+\end{lstlisting}
+
+Для каждого индекса \texttt{i} вычисляются границы окна \texttt{[start, end)} с обрезкой по краям массива. Вычисляется арифметическое среднее по срезу \texttt{data[start:end]}.
+
+\subsection{Сложность}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Время            & $O(N \cdot \text{win})$ \\
+Память           & $O(N)$ \\
+Гранич. условия  & Clamping (обрезка окна) \\
+\hline
+\end{tabular}
+\end{center}
+
+%% === 2. GAUSSIAN ===
+\section{Gaussian}
+
+\subsection{Сигнатура}
+
+\begin{lstlisting}
+def gaussian(data: list, win: int) -> list
+\end{lstlisting}
+
+\subsection{Алгоритм --- ядро}
+
+\begin{lstlisting}
+def gaussian(data, win):
+    half = win // 2
+    sigma = win / 6.0
+    n = len(data)
+    k = [math.exp(-0.5*(i - half)**2 / sigma**2)
+         for i in range(win)]
+    k = [x/sum(k) for x in k]
+\end{lstlisting}
+
+\subsection{Алгоритм --- дополнение и свёртка}
+
+\begin{lstlisting}
+    p = ([data[i] for i in range(half-1, -1, -1)]
+         + data
+         + [data[i] for i in range(n-1, n-half-1, -1)])
+    return [sum(k[j]*p[i+j] for j in range(win))
+            for i in range(n)]
+\end{lstlisting}
+
+Ядро Гаусса: $w[k] = \exp\!\bigl(-0.5 \cdot (k - \text{half})^2 / \sigma^2\bigr)$, $\sigma = \text{win}/6$. Нормализация: $w\_norm[k] = w[k] / \sum w$. Дополнение: симметрическое отражение на \texttt{half} элементов. Свёртка: каждый выходной отсчёт --- взвешенная сумма по ядру.
+
+\subsection{Сложность}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Время            & $O(N \cdot \text{win})$ \\
+Память           & $O(N + \text{win})$ \\
+Гранич. условия  & Mirror reflection (отражение) \\
+\hline
+\end{tabular}
+\end{center}
+
+%% === 3. PROGRESSIVE ===
+\section{Progressive}
+
+\subsection{Сигнатура}
+
+\begin{lstlisting}
+def progressive(data: list) -> list
+\end{lstlisting}
+
+\subsection{Алгоритм}
+
+\begin{lstlisting}
+def progressive(data):
+    result = []
+    total = 0.0
+    for i, value in enumerate(data):
+        total += value
+        result.append(total / (i + 1))
+    return result
+\end{lstlisting}
+
+Накапливается сумма \texttt{total}. На каждом шаге \texttt{i} вычисляется \texttt{total / (i + 1)} --- среднее отсчётов от $0$ до $i$.
+
+\subsection{Сложность}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Время            & $O(N)$ \\
+Память           & $O(N)$ \\
+Гранич. условия  & Нет (окно растёт от $1$ до $N$) \\
+\hline
+\end{tabular}
+\end{center}
+
+%% === 4. HYBRID ===
+\section{Hybrid}
+
+\subsection{Сигнатура}
+
+\begin{lstlisting}
+def hybrid(data: list, win: int) -> list
+\end{lstlisting}
+
+\subsection{Алгоритм}
+
+\begin{lstlisting}
+def hybrid(data, win):
+    n = len(data)
+    box = boxcar(win, data)
+    prog = progressive(data)
+
+    out = []
+    for i in range(n):
+        if i < win:
+            out.append(box[i])
+        elif i < 2 * win:
+            z = (i - win) / win
+            k = (1.0 - z) * box[i] + z * prog[i]
+            out.append(k)
+        else:
+            out.append(prog[i])
+    return out
+\end{lstlisting}
+
+\subsection{Логика}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Условие} & \textbf{Действие} \\
+\hline
+\texttt{i < win}           & Берётся \texttt{boxcar[i]} \\
+\texttt{win <= i < 2*win}  & Линейная интерполяция: $(1{-}z) \cdot box + z \cdot prog$ \\
+\texttt{i >= 2*win}        & Берётся \texttt{progressive[i]} \\
+\hline
+\end{tabular}
+\end{center}
+
+Коэффициент интерполяции: $z = (i - \text{win}) / \text{win}$, $z \in [0, 1)$.
+
+\subsection{Сложность}
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Время            & $O(N \cdot \text{win})$ (из-за boxcar) \\
+Память           & $O(N)$ \\
+Гранич. условия  & Зависит от boxcar (clamping) \\
+\hline
+\end{tabular}
+\end{center}
+
+\end{document}

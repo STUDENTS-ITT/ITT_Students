@@ -1,0 +1,224 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=2cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\definecolor{titleblue}{RGB}{26,35,126}
+\definecolor{codebg}{RGB}{30,30,30}
+\definecolor{codefg}{RGB}{212,212,212}
+\definecolor{kw}{RGB}{86,156,214}
+\definecolor{fn}{RGB}{220,220,170}
+\definecolor{cm}{RGB}{106,153,85}
+\definecolor{st}{RGB}{206,145,120}
+
+\lstdefinestyle{py}{
+  language=Python,
+  basicstyle=\ttfamily\small\color{codefg},
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{kw}\bfseries,
+  commentstyle=\color{cm}\itshape,
+  stringstyle=\color{st},
+  functionnamestyle=\color{fn},
+  numbers=none,
+  frame=single,
+  rulecolor=\color{codebg},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  xleftmargin=1cm,
+  xrightmargin=1cm,
+  aboveskip=6pt,
+  belowskip=6pt,
+}
+
+\lstset{style=py}
+
+\title{\color{titleblue}\textbf{Описание функций сглаживания\\(Гибридная версия: математика + Python)}}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% === 1. BOXCAR ===
+\section{Равномерное скользящее среднее (Boxcar)}
+
+\subsection{Математическая формула}
+
+Равномерное скользящее среднее по окну $M$ (половина окна $m = M // 2$):
+\[
+\text{start}(i) = \max(0,\; i + 1 - m), \qquad
+\text{end}(i) = \min(m + i, \; N),
+\]
+\[
+W(i) = \text{end}(i) - \text{start}(i), \qquad
+y[i] = \frac{1}{W(i)} \sum_{j = \text{start}(i)}^{\text{end}(i) - 1} x[j].
+\]
+
+На границах массива окно обрезается (clamping).
+
+\subsection{Реализация --- Python}
+
+\begin{lstlisting}
+def boxcar(win, data):
+    half = win // 2
+    n = len(data)
+    avg = []
+    for i in range(n):
+        start = max(0, i + 1 - half)
+        end = min(half + i, n)
+        sum_array = sum(data[start:end])
+        aver = sum_array / len(data[start:end])
+        avg.append(aver)
+    return avg
+\end{lstlisting}
+
+\subsection{Свойства}
+
+\begin{itemize}
+  \item Веса: равные $1/W(i)$ для всех элементов в окне.
+  \item АЧХ: $H(f) = \sin(\pi f M) \big/ \bigl(M \cdot \sin(\pi f)\bigr)$.
+  \item Сложность: $O(N \cdot \text{win})$.
+  \item Граничные условия: clamping (обрезка окна).
+\end{itemize}
+
+%% === 2. GAUSSIAN ===
+\section{Гауссов фильтр (Gaussian)}
+
+\subsection{Математическая формула}
+
+Ядро Гаусса с $\sigma = M / 6$:
+\[
+w[k] = \exp\!\left(-\frac{(k - m)^2}{2\sigma^2}\right), \quad k = 0, \ldots, M{-}1,
+\qquad
+w\_norm[k] = \frac{w[k]}{\sum_{j=0}^{M-1} w[j]}.
+\]
+
+Сигнал дополняется симметрическим отражением (mirror reflection) на $m$ элементов с каждой стороны, затем выполняется свёртка:
+\[
+y[i] = \sum_{k=0}^{M-1} w\_norm[k] \cdot x\_padded[i + k].
+\]
+
+\subsection{Реализация --- Python}
+
+\begin{lstlisting}
+def gaussian(data, win):
+    half = win // 2
+    sigma = win / 6.0
+    n = len(data)
+    k = [math.exp(-0.5*(i - half)**2 / sigma**2)
+         for i in range(win)]
+    k = [x/sum(k) for x in k]
+    p = ([data[i] for i in range(half-1,-1,-1)]
+         + data
+         + [data[i] for i in range(n-1,n-half-1,-1)])
+    return [sum(k[j]*p[i+j] for j in range(win))
+            for i in range(n)]
+\end{lstlisting}
+
+\subsection{Свойства}
+
+\begin{itemize}
+  \item Веса: убывают по закону Гаусса, нет артефактов Гиббса.
+  \item Симметричность ядра: нулевая фаза (сдвиг отсутствует).
+  \item $\sigma = M/6$: $\sim$99.7\% энергии внутри окна.
+  \item Граничные условия: mirror reflection (отражение).
+  \item Сложность: $O(N \cdot \text{win})$.
+\end{itemize}
+
+%% === 3. PROGRESSIVE ===
+\section{Прогрессивное среднее (Progressive)}
+
+\subsection{Математическая формула}
+
+\[
+y[i] = \frac{1}{i + 1} \sum_{k=0}^{i} x[k], \qquad i = 0, 1, \ldots, N{-}1.
+\]
+
+Рекуррентно: $S[i] = S[i{-}1] + x[i]$, \quad $y[i] = S[i] \big/ (i + 1)$.
+
+\subsection{Реализация --- Python}
+
+\begin{lstlisting}
+def progressive(data):
+    result = []
+    total = 0.0
+    for i, value in enumerate(data):
+        total += value
+        result.append(total / (i + 1))
+    return result
+\end{lstlisting}
+
+\subsection{Свойства}
+
+\begin{itemize}
+  \item Размер окна: $i + 1$ (растёт от $1$ до $N$).
+  \item Дисперсия: $O(1/i)$ --- минимум на последнем отсчёте.
+  \item Сложность: $O(N)$.
+\end{itemize}
+
+%% === 4. HYBRID ===
+\section{Гибридное сглаживание (Hybrid)}
+
+\subsection{Математическая формула}
+
+\[
+y[i] =
+\begin{cases}
+y_{\text{boxcar}}[i], & 0 \leq i < M, \\[4pt]
+(1 - \lambda) \cdot y_{\text{boxcar}}[i] + \lambda \cdot y_{\text{prog}}[i], & M \leq i < 2M, \\[4pt]
+y_{\text{prog}}[i], & i \geq 2M,
+\end{cases}
+\]
+где $\lambda(i) = (i - M) / M$, \quad $\lambda \in [0, 1)$.
+
+\subsection{Реализация --- Python}
+
+\begin{lstlisting}
+def hybrid(data, win):
+    n = len(data)
+    box = boxcar(win, data)
+    prog = progressive(data)
+
+    out = []
+    for i in range(n):
+        if i < win:
+            out.append(box[i])
+        elif i < 2 * win:
+            z = (i - win) / win
+            k = (1.0 - z) * box[i] + z * prog[i]
+            out.append(k)
+        else:
+            out.append(prog[i])
+    return out
+\end{lstlisting}
+
+\subsection{Зоны}
+
+\begin{center}
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Зона} & \textbf{Диапазон} & \textbf{Формула} & \textbf{Поведение} \\
+\hline
+I   & $0 \leq i < M$     & $y = y_{\text{boxcar}}$   & Стабильное усреднение \\
+II  & $M \leq i < 2M$    & $(1{-}\lambda) \cdot box + \lambda \cdot prog$ & Линейный crossfade \\
+III & $i \geq 2M$        & $y = y_{\text{prog}}$      & Минимальная дисперсия \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{Свойства}
+
+\begin{itemize}
+  \item Коэффициент интерполяции: $\lambda(i) = (i - M) / M$, $\lambda \in [0, 1)$.
+  \item Непрерывность: гарантирована на всех границах зон.
+  \item Переходная зона: ширина $M$ отсчётов.
+  \item Сглаживание: монотонно усиливается от зоны I к зоне III.
+\end{itemize}
+
+\end{document}
