@@ -1,0 +1,49 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "Build imitator",
+            "command": "C:\\Users\\User\\Desktop\\kat\\w64devkit\\bin\\g++.exe",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-std=c++17",
+                "-g",
+                "-O2",
+                "-I",
+                "${workspaceFolder}\\src",
+                "${workspaceFolder}\\src\\main.cpp",
+                "${workspaceFolder}\\src\\data_io\\data_reader.cpp",
+                "${workspaceFolder}\\src\\data_io\\data_writer.cpp",
+                "-o",
+                "${workspaceFolder}\\imitator.exe"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Сборка imitator.exe из всех исходников проекта"
+        },
+        {
+            "type": "shell",
+            "label": "Run imitator",
+            "command": "${workspaceFolder}\\imitator.exe",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build imitator",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "detail": "Запуск из корня проекта: рядом должны лежать imu.dat, gps.dat, angle.dat"
+        }
+    ]
+}

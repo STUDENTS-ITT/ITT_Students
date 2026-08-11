@@ -1,0 +1,7 @@
+/.idea
+/.venv
+/build
+/out
+*.exe
+*.obj
+*.o
