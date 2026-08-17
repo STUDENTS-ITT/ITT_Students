@@ -10,69 +10,15 @@ constexpr int BUF_rot = 3000;
  * @param Yaw Указатель на результирующий курс (рыскание).
  * @param Pitch Указатель на результирующий тангаж.
  * @param Roll Указатель на результирующий крен.
- * @param IMU_path Путь к файлу с данными ИМУ (ускорения и угловые скорости).
- * @param Nav_path Путь к файлу с навигационными данными (координаты, широта, высота).
- * @param StartupNav_path Путь к конфигурационному файлу.
+ * @param IMU_path Путь к файлу imu.dat.
+ * @param lat_deg Широта места в градусах (из gps.dat).
+ * @param h Высота над уровнем моря в метрах (из gps.dat).
+ * @param iter Время окончания выставки в секундах.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* Nav_path, const char* StartupNav_path)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, double lat_deg, double h, double iter)
 {
-		double LAT_I = 0.0; // Широта места
-		double H = 0.0; // Высота над уровнем моря
-
-		// Чтение навигационных данных
-		ifstream file_nav(Nav_path);
-		if (!file_nav.is_open())
-		{
-				cerr << "Error opening Nav file!\n";
-				return;
-		}
-
-		string buffer;
-		// Пропуск первых 2-х строк
-		for (int i = 0; i < 2; i++)
-		{
-				if (!getline(file_nav, buffer))
-				{
-						cerr << "Error reading Nav file!\n";
-						return;
-				}
-		}
-
-		// Чтение широты и высоты из третьей строки
-		if (getline(file_nav, buffer))
-		{
-				sscanf(buffer.c_str(), "%*s %*s %lf", &LAT_I);
-				sscanf(buffer.c_str(), "%*s %*s %*s %*s %lf", &H);
-		}
-		file_nav.close();
-
-		double iter = 0.0; // Время выставки (сек) 
-
-		// Чтение конфигурационного файла
-		ifstream file_startup_nav(StartupNav_path);
-		if (!file_startup_nav.is_open())
-		{
-				cerr << "Error opening StartupNav_path file!\n";
-				return;
-		}
-
-		// Пропуск первых 5-и строк
-		for (int i = 0; i < 5; i++)
-		{
-				if (!getline(file_startup_nav, buffer))
-				{
-						cerr << "Error reading Nav file!\n";
-						return;
-				}
-		}
-
-		// Чтение времени окончания процесса начальной выставки (сек)
-		if (getline(file_startup_nav, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &iter);
-		}
-		file_startup_nav.close();
-
+		// Формула Клеро для расчёта g
+		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
 
 		// Открытие файла IMU
 		ifstream file_imu(IMU_path);
@@ -82,18 +28,13 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 				return;
 		}
 
-		// Пропуск первых 2-х строк
-		for (int i = 0; i < 2; i++)
+		// Пропуск строки заголовка
+		string buffer;
+		if (!getline(file_imu, buffer))
 		{
-				if (!getline(file_imu, buffer))
-				{
-						cerr << "Error reading IMU file!\n";
-						return;
-				}
+				cerr << "Error reading IMU file!\n";
+				return;
 		}
-
-		// Формула Клеро для расчёта g
-		double g = calculate_g(LAT_I * (PI / 180.0), H);
 
 		// Создание файла для записи промежуточных и отфильтрованных параметров
 		ofstream graphfile("../data/processed/Aligner.dat");
@@ -223,7 +164,7 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 												update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
 
 												char line_buf[512];
-												sprintf(line_buf, "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
+												snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
 												graphfile << line_buf;
 										}
 								}
@@ -266,18 +207,18 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 						// Если буфер заполнен полностью, производим его фильтрацию и расчёт
 						if (count_ar == BUF_rot)
 						{
-								FastMedian(Ax_arr, Ax_aver_arr_temp, count_ar);
+								FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
 								EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
-								FastMedian(Ay_arr, Ay_aver_arr_temp, count_ar);
+								FastMedian(Ay_blc, Ay_aver_arr_temp, count_ar);
 								EMA_Filter(Ay_aver_arr_temp, Ay_aver_arr, alpha, count_ar, &last_Ay, is_first_block);
-								FastMedian(Az_arr, Az_aver_arr_temp, count_ar);
+								FastMedian(Az_blc, Az_aver_arr_temp, count_ar);
 								EMA_Filter(Az_aver_arr_temp, Az_aver_arr, alpha, count_ar, &last_Az, is_first_block);
 
-								FastMedian(Wx_arr, Wx_aver_arr_temp, count_ar);
+								FastMedian(Wx_blc, Wx_aver_arr_temp, count_ar);
 								EMA_Filter(Wx_aver_arr_temp, Wx_aver_arr, alpha, count_ar, &last_Wx, is_first_block);
-								FastMedian(Wy_arr, Wy_aver_arr_temp, count_ar);
+								FastMedian(Wy_blc, Wy_aver_arr_temp, count_ar);
 								EMA_Filter(Wy_aver_arr_temp, Wy_aver_arr, alpha, count_ar, &last_Wy, is_first_block);
-								FastMedian(Wz_arr, Wz_aver_arr_temp, count_ar);
+								FastMedian(Wz_blc, Wz_aver_arr_temp, count_ar);
 								EMA_Filter(Wz_aver_arr_temp, Wz_aver_arr, alpha, count_ar, &last_Wz, is_first_block);
 
 								is_first_block = 0;
@@ -323,7 +264,7 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 										update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
 
 										char line_buf[512];
-										sprintf(line_buf, "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
+										snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
 										graphfile << line_buf;
 								}
 								count_ar = 0; // Сброс счётчика буфера для следующей порции
