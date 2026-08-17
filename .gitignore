@@ -6,6 +6,7 @@ bin/
 
 # Обработанные данные и логи
 data/processed/
+data/raw/
 *.dat
 
 # Системные файлы и файлы IDE

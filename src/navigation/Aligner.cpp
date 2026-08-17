@@ -7,13 +7,14 @@ constexpr int BUF_rot = 3000;
 
 /**
  * @brief Главная функция расчёта начальных углов ориентации (Курс, Тангаж, Крен).
- * @[out] Yaw Указатель на результирующий курс (рыскание).
- * @[out] Pitch Указатель на результирующий тангаж.
- * @[out] Roll Указатель на результирующий крен.
+ * @param Yaw Указатель на результирующий курс (рыскание).
+ * @param Pitch Указатель на результирующий тангаж.
+ * @param Roll Указатель на результирующий крен.
  * @param IMU_path Путь к файлу с данными ИМУ (ускорения и угловые скорости).
  * @param Nav_path Путь к файлу с навигационными данными (координаты, широта, высота).
+ * @param StartupNav_path Путь к конфигурационному файлу.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* Nav_path)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* Nav_path, const char* StartupNav_path)
 {
 		double LAT_I = 0.0; // Широта места
 		double H = 0.0; // Высота над уровнем моря
@@ -45,7 +46,33 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		}
 		file_nav.close();
 
-		int iter = 120; // Время окончания процесса начальной выставки (в секундах)
+		double iter = 0.0; // Время выставки (сек) 
+
+		// Чтение конфигурационного файла
+		ifstream file_startup_nav(StartupNav_path);
+		if (!file_startup_nav.is_open())
+		{
+				cerr << "Error opening StartupNav_path file!\n";
+				return;
+		}
+
+		// Пропуск первых 5-и строк
+		for (int i = 0; i < 5; i++)
+		{
+				if (!getline(file_startup_nav, buffer))
+				{
+						cerr << "Error reading Nav file!\n";
+						return;
+				}
+		}
+
+		// Чтение времени окончания процесса начальной выставки (сек)
+		if (getline(file_startup_nav, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &iter);
+		}
+		file_startup_nav.close();
+
 
 		// Открытие файла IMU
 		ifstream file_imu(IMU_path);
@@ -131,7 +158,7 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		{
 				if (sscanf(buffer.c_str(), "%lf %*s %lf %lf %lf %lf %lf %lf", &Time, &Wx, &Wy, &Wz, &Ax, &Ay, &Az) == 7)
 				{
-						if (Time > static_cast<double>(iter)) // Окончание выставки
+						if (Time > iter) // Окончание выставки
 						{
 								if (count_ar > 0)
 								{
