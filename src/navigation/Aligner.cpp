@@ -13,9 +13,9 @@ constexpr int BUF_rot = 3000;
  * @param IMU_path Путь к файлу imu.dat.
  * @param StartupNav_path Путь к конфигурационному файлу StartupNav.ini.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path, double h)
 {
-		// Чтение параметров из StartupNav.ini
+		// Чтение параметров из StartupNav.ini (3 строки)
 		ifstream file_startup(StartupNav_path);
 		if (!file_startup.is_open())
 		{
@@ -35,24 +35,7 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 				sscanf(buffer.c_str(), "%lf", &lat_deg);
 		}
 
-		// Строка 3: Высота (м)
-		double h = 0.0;
-		if (getline(file_startup, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &h);
-		}
-
-		// Строка 4: Курс выставки (град)
-		double heading_deg = 0.0;
-		if (getline(file_startup, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &heading_deg);
-		}
-
-		// Строка 5: Запись выходных параметров — пропускаем
-		getline(file_startup, buffer);
-
-		// Строка 6: Время выставки (сек)
+		// Строка 3: Время выставки (сек)
 		double iter = 0.0;
 		if (getline(file_startup, buffer))
 		{
@@ -317,8 +300,8 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		file_imu.close();
 		graphfile.close();
 
-		// Записываем результаты: курс из StartupNav.ini, тангаж и крен — из фильтра
-		*Yaw = heading_deg * DEG_TO_RAD;
+		// Записываем накопленные средние значения в выходные параметры
+		*Yaw = final_yaw_mean;
 		*Pitch = final_pitch_mean;
 		*Roll = final_roll_mean;
 

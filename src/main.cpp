@@ -70,13 +70,14 @@ int main(int argc, char **argv)
     }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
-    // Широта, высота и время выставки — из StartupNav.ini.
+    // Широта и время выставки — из StartupNav.ini, высота — из gps.dat.
     double Yaw_0 = 0.0, Pitch_0 = 0.0, Roll_0 = 0.0;
 
     std::cout << "=== Alignment ===" << std::endl;
     get_angle_start(&Yaw_0, &Pitch_0, &Roll_0,
                     imu_file.c_str(),
-                    startup_file.c_str());
+                    startup_file.c_str(),
+                    scan.first.alt);
     std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
