@@ -1,25 +1,25 @@
-cmake_minimum_required(VERSION 3.12)
-project(ITT_STUDENTS CXX)
+cmake_minimum_required(VERSION 3.15)
 
-# Cтандарт C++
+project(ITT_Students LANGUAGES CXX)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Библиотека навигации
-add_library(navigation_lib 
-		src/navigation/aligner.cpp
-		src/navigation/aligner.hpp
+# Исполнимый файл: БИНС с фильтром Калмана 15-го порядка.
+# Исходники:
+#   main.cpp              — точка входа, цикл счисления
+#   Aligner.cpp           — автономная выставка (Median + EMA фильтры)
+#   data_reader.cpp       — чтение imu.dat, gps.dat, angle.dat
+#   data_writer.cpp       — запись траектории и ошибок фильтра
+add_executable(imitator
+    src/main.cpp
+    src/navigation/Aligner.cpp
+    src/data_io/data_reader.cpp
+    src/data_io/data_writer.cpp
 )
 
-# Указываем путь, где компилятор должен искать заголовочные файлы
-target_include_directories(navigation_lib PUBLIC 
-		${CMAKE_CURRENT_SOURCE_DIR}/src
-)
+target_include_directories(imitator PRIVATE src)
 
-# Создаем исполняемый файл
-add_executable(main 
-		src/main.cpp
-)
-
-# Подключаем всё необходимое к исполняемому файлу
-target_link_libraries(main PRIVATE navigation_lib)
+if(MSVC)
+    target_compile_options(imitator PRIVATE /utf-8)
+endif()
