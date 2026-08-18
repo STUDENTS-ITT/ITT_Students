@@ -151,6 +151,6 @@ inline void update_recursive_mean(double& current_mean, double new_val, long n)
 }
 
 // Объявление главной функции начальной выставки инерциальной навигационной системы
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, double lat_deg, double h, double iter);
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path);
 
 #endif

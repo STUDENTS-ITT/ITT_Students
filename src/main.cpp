@@ -53,6 +53,7 @@ int main(int argc, char **argv)
     const std::string imu_file = data_dir + "/imu.dat";
     const std::string gps_file = data_dir + "/gps.dat";
     const std::string angle_file = data_dir + "/angle.dat";
+    const std::string startup_file = data_dir + "/StartupNav.ini";
     const std::string out_file = "kalman15_line2.txt";  // траектория
     const std::string err_file = "d_1.txt";              // ошибки фильтра
 
@@ -69,16 +70,13 @@ int main(int argc, char **argv)
     }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
-    // Широта и высота — из первого отсчёта gps.dat.
-    // Время окончания выставки — из scanSns (момент начала движения).
+    // Широта, высота и время выставки — из StartupNav.ini.
     double Yaw_0 = 0.0, Pitch_0 = 0.0, Roll_0 = 0.0;
 
     std::cout << "=== Alignment ===" << std::endl;
     get_angle_start(&Yaw_0, &Pitch_0, &Roll_0,
                     imu_file.c_str(),
-                    scan.first.lat * RAD_TO_DEG,
-                    scan.first.alt,
-                    scan.motion_start);
+                    startup_file.c_str());
     std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
