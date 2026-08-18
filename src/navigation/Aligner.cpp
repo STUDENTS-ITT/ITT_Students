@@ -42,8 +42,12 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 				sscanf(buffer.c_str(), "%lf", &h);
 		}
 
-		// Строка 4: Курс (град) — пропускаем
-		getline(file_startup, buffer);
+		// Строка 4: Курс выставки (град)
+		double heading_deg = 0.0;
+		if (getline(file_startup, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &heading_deg);
+		}
 
 		// Строка 5: Запись выходных параметров — пропускаем
 		getline(file_startup, buffer);
@@ -313,8 +317,8 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		file_imu.close();
 		graphfile.close();
 
-		// Записываем накопленные средние значения в выходные параметры
-		*Yaw = final_yaw_mean;
+		// Записываем результаты: курс из StartupNav.ini, тангаж и крен — из фильтра
+		*Yaw = heading_deg * DEG_TO_RAD;
 		*Pitch = final_pitch_mean;
 		*Roll = final_roll_mean;
 
