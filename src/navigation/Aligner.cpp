@@ -178,18 +178,18 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 						Ax_arr.push_back(Ax);
 						Ay_arr.push_back(Ay);
 						Az_arr.push_back(Az);
-						Wx_arr.push_back(Wx * (PI / 180.0));
-						Wy_arr.push_back(Wy * (PI / 180.0));
-						Wz_arr.push_back(Wz * (PI / 180.0));
+						Wx_arr.push_back(Wx);
+						Wy_arr.push_back(Wy);
+						Wz_arr.push_back(Wz);
 
 						// Накопление сумм для расчёта средних значений
 						Ax_sm += Ax;
 						Ay_sm += Ay;
 						Az_sm += Az;
 
-						Wx_sm += Wx * (PI / 180.0);
-						Wy_sm += Wy * (PI / 180.0);
-						Wz_sm += Wz * (PI / 180.0);
+						Wx_sm += Wx;
+						Wy_sm += Wy;
+						Wz_sm += Wz;
 
 						total_samples++;
 
@@ -199,9 +199,9 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 								Ax_blc[count_ar] = Ax;
 								Ay_blc[count_ar] = Ay;
 								Az_blc[count_ar] = Az;
-								Wx_blc[count_ar] = Wx * (PI / 180.0);
-								Wy_blc[count_ar] = Wy * (PI / 180.0);
-								Wz_blc[count_ar] = Wz * (PI / 180.0);
+								Wx_blc[count_ar] = Wx;
+								Wy_blc[count_ar] = Wy;
+								Wz_blc[count_ar] = Wz;
 						}
 
 						count_ar++;
