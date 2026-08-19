@@ -22,7 +22,7 @@
 #include "data_io/data_writer.h"
 #include "ins/imu_processor.h"
 #include "navigation/aligner.h"
-#include "navigation/bins_alignment.h"
+// #include "navigation/bins_alignment.h"
 #include "navigation/gps_processor.h"
 #include "navigation/trajectory.h"
 #include "navigation/aligner.hpp"
@@ -33,7 +33,7 @@ namespace
 {
 
 // Количество отсчётов ИМУ на начальном участке (180 с при 200 Гц).
-constexpr int START_SAMPLES = 180 * SNS_DECIMATION;
+constexpr int START_SAMPLES = 120 * SNS_DECIMATION;
 
 // Формирование строки для записи на начальном участке: Калман ещё не
 // работает, пишутся стартовые значения и текущий отсчёт эталона.
@@ -62,12 +62,12 @@ int main(int argc, char **argv)
     // === Этап 1: разведочный проход по эталону ===
     // Один проход по gps.dat + angle.dat: запоминаем первый отсчёт
     // (координаты, скорость) и время начала движения (граница выставки).
-    const nav::SnsScan scan = nav::scanSns(gps_file, angle_file);
-    if (!scan.ok)
-    {
-        std::cerr << "no reference data" << std::endl;
-        return 1;
-    }
+    // const nav::SnsScan scan = nav::scanSns(gps_file, angle_file);
+    // if (!scan.ok)
+    // {
+    //     std::cerr << "no reference data" << std::endl;
+    //     return 1;
+    // }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
     // Широта и время выставки — из StartupNav.ini, высота — из gps.dat.
@@ -115,23 +115,23 @@ int main(int argc, char **argv)
 
     // Начальный участок (180 с): положение неизменным.
     // Фильтр Калмана не работает, пишутся только стартовые значения.
-    while (i < START_SAMPLES && imu.next(row))
-    {
-        if (!ins::isValidRow(row))
-        {
-            continue;
-        }
-        if (!sns.next(ref))
-        {
-            break;
-        }
-        if (i % SNS_DECIMATION == 0)
-        {
-            log.write(startRecord(ins::sampleTime(row), state, ref));
-        }
-        state.time_prev = ins::sampleTime(row);
-        i++;
-    }
+    // while (i < START_SAMPLES && imu.next(row))
+    // {
+    //     if (!ins::isValidRow(row))
+    //     {
+    //         continue;
+    //     }
+    //     if (!sns.next(ref))
+    //     {
+    //         break;
+    //     }
+    //     if (i % SNS_DECIMATION == 0)
+    //     {
+    //         log.write(startRecord(ins::sampleTime(row), state, ref));
+    //     }
+    //     state.time_prev = ins::sampleTime(row);
+    //     i++;
+    // }
 
     // Основной цикл счисления с фильтром Калмана.
     // На каждом такте: интегрирование скоростей, координат, ориентации.

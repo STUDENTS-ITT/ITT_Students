@@ -156,6 +156,7 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
         const double hdg_true = ins::headingFromEarthRate(
             row[ins::IMU_COL_GYRO] - st.bg_static[0],
             row[ins::IMU_COL_GYRO + 2] - st.bg_static[2]);
+        // Запись данных для анализа в kalman15
         log.writeErrors(time_s, st.x);
 
         // Применение коррекций фильтра к состоянию.
@@ -177,6 +178,7 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
         for (int k = 0; k < ins::KF_STATE; k++)
             st.x[k] = 0.0;
 
+        // Запись данных для анализа в kalman15
         log.write(makeRecord(time_s, st, ref, hdg_true, bins[0]));
     }
 }
