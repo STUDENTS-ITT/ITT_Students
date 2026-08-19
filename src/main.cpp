@@ -5,9 +5,7 @@
 //   2. Автономная выставка (Median + EMA фильтры) — начальные углы ориентации.
 //   3. Формирование начального состояния: углы из выставки, координаты из конфига,
 //      скорости нулевые.
-//   4. Начальный участок (180 с): положение не меняется, данные пишутся,
-//      но фильтр Калмана ещё не работает.
-//   5. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, коррекция
+//   4. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, коррекция
 //      по СНС каждые 200 отсчётов (1 Гц), запись результатов.
 
 #include <chrono>
@@ -30,16 +28,6 @@
 
 namespace
 {
-
-// Количество отсчётов ИМУ на начальном участке (180 с при 200 Гц).
-constexpr int START_SAMPLES = 120 * SNS_DECIMATION;
-
-// Формирование строки для записи на начальном участке: Калман ещё не
-// работает, пишутся стартовые значения и текущий отсчёт эталона.
-data_io::NavRecord startRecord(double time, const nav::NavState &st, const nav::SnsSample &ref)
-{
-    return nav::makeRecord(time, st, ref, st.att.heading, st.lat);
-}
 
 // Чтение StartupNav.ini (4 строки: lon, lat, alt, time).
 // Возвращает true если файл прочитан.
@@ -84,8 +72,9 @@ int main(int argc, char **argv)
     const std::string gps_file = data_dir + "/gps.dat";
     const std::string angle_file = data_dir + "/angle.dat";
     const std::string startup_file = data_dir + "/StartupNav.ini";
-    const std::string out_file = "kalman15_line2.txt";  // траектория
-    const std::string err_file = "d_1.txt";              // ошибки фильтра
+    const std::string result_file = "result.txt";        // результат БИНС
+    const std::string reference_file = "reference.txt";   // эталон СНС
+    const std::string err_file = "errors.txt";            // ошибки фильтра
 
     const auto start_time = std::chrono::high_resolution_clock::now();
 
@@ -123,7 +112,7 @@ int main(int argc, char **argv)
     std::cout << "=== Alignment ===" << std::endl;
     get_angle_start(&Yaw_0, &Pitch_0, &Roll_0,
                     imu_file.c_str(),
-                    startup_file.c_str());
+                    start_lat, start_alt, align_time);
     std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
@@ -147,9 +136,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // NavLogger — два выходных файла: траектория и ошибки фильтра.
+    // NavLogger — три выходных файла: результат, эталон, ошибки фильтра.
     data_io::NavLogger log;
-    if (!log.open(out_file, err_file))
+    if (!log.open(result_file, reference_file, err_file))
     {
         return 1;
     }
@@ -158,26 +147,6 @@ int main(int argc, char **argv)
     std::vector<double> row;   // строка imu.dat
     nav::SnsSample ref;        // отсчёт эталона (gps + angle)
     int i = 0;                 // счётчик отсчётов ИМУ
-
-    // Начальный участок (180 с): положение неизменным.
-    // Фильтр Калмана не работает, пишутся только стартовые значения.
-    // while (i < START_SAMPLES && imu.next(row))
-    // {
-    //     if (!ins::isValidRow(row))
-    //     {
-    //         continue;
-    //     }
-    //     if (!sns.next(ref))
-    //     {
-    //         break;
-    //     }
-    //     if (i % SNS_DECIMATION == 0)
-    //     {
-    //         log.write(startRecord(ins::sampleTime(row), state, ref));
-    //     }
-    //     state.time_prev = ins::sampleTime(row);
-    //     i++;
-    // }
 
     // Основной цикл счисления с фильтром Калмана.
     while (imu.next(row))
