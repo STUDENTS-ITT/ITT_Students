@@ -76,8 +76,7 @@ int main(int argc, char **argv)
     std::cout << "=== Alignment ===" << std::endl;
     get_angle_start(&Yaw_0, &Pitch_0, &Roll_0,
                     imu_file.c_str(),
-                    startup_file.c_str(),
-                    scan.first.alt);
+                    startup_file.c_str());
     std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;

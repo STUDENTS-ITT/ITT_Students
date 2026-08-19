@@ -13,7 +13,7 @@ constexpr int BUF_rot = 3000;
  * @param IMU_path Путь к файлу imu.dat.
  * @param StartupNav_path Путь к конфигурационному файлу StartupNav.ini.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path, double h)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path)
 {
 		// Чтение параметров из StartupNav.ini (3 строки)
 		ifstream file_startup(StartupNav_path);
@@ -35,7 +35,14 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 				sscanf(buffer.c_str(), "%lf", &lat_deg);
 		}
 
-		// Строка 3: Время выставки (сек)
+		// Строка 3: Высота (м)
+		double h = 0.0;
+		if (getline(file_startup, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &h);
+		}
+
+		// Строка 4: Время выставки (сек)
 		double iter = 0.0;
 		if (getline(file_startup, buffer))
 		{
