@@ -15,7 +15,7 @@ constexpr int BUF_rot = 3000;
  */
 void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path)
 {
-		// Чтение параметров из StartupNav.ini (3 строки)
+		// Чтение параметров из StartupNav.ini (4 строки)
 		ifstream file_startup(StartupNav_path);
 		if (!file_startup.is_open())
 		{

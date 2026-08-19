@@ -1,11 +1,10 @@
 // main.cpp — Точка входа: автономная выставка + счисление БИНС с фильтром Калмана.
 //
 // Поток выполнения:
-//   1. Разведочный проход по эталону (gps.dat + angle.dat) — первый отсчёт
-//      и момент начала движения.
+//   1. Чтение конфигурации (StartupNav.ini) — координаты и время выставки.
 //   2. Автономная выставка (Median + EMA фильтры) — начальные углы ориентации.
-//   3. Формирование начального состояния: углы из выставки, координаты и
-//      скорости — из первого отсчёта СНС.
+//   3. Формирование начального состояния: углы из выставки, координаты из конфига,
+//      скорости нулевые.
 //   4. Начальный участок (180 с): положение не меняется, данные пишутся,
 //      но фильтр Калмана ещё не работает.
 //   5. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, коррекция
@@ -14,6 +13,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -22,7 +22,6 @@
 #include "data_io/data_writer.h"
 #include "ins/imu_processor.h"
 #include "navigation/aligner.h"
-// #include "navigation/bins_alignment.h"
 #include "navigation/gps_processor.h"
 #include "navigation/trajectory.h"
 #include "navigation/aligner.hpp"
@@ -42,6 +41,37 @@ data_io::NavRecord startRecord(double time, const nav::NavState &st, const nav::
     return nav::makeRecord(time, st, ref, st.att.heading, st.lat);
 }
 
+// Чтение StartupNav.ini (4 строки: lon, lat, alt, time).
+// Возвращает true если файл прочитан.
+bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, double &alt, double &time_s)
+{
+    std::ifstream f(path);
+    if (!f.is_open())
+    {
+        return false;
+    }
+
+    std::string line;
+
+    // Строка 1: Долгота (град)
+    if (!std::getline(f, line)) return false;
+    sscanf(line.c_str(), "%lf", &lon_deg);
+
+    // Строка 2: Широта (град)
+    if (!std::getline(f, line)) return false;
+    sscanf(line.c_str(), "%lf", &lat_deg);
+
+    // Строка 3: Высота (м)
+    if (!std::getline(f, line)) return false;
+    sscanf(line.c_str(), "%lf", &alt);
+
+    // Строка 4: Время выставки (сек)
+    if (!std::getline(f, line)) return false;
+    sscanf(line.c_str(), "%lf", &time_s);
+
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -59,18 +89,35 @@ int main(int argc, char **argv)
 
     const auto start_time = std::chrono::high_resolution_clock::now();
 
-    // === Этап 1: разведочный проход по эталону ===
-    // Один проход по gps.dat + angle.dat: запоминаем первый отсчёт
-    // (координаты, скорость) и время начала движения (граница выставки).
-    // const nav::SnsScan scan = nav::scanSns(gps_file, angle_file);
-    // if (!scan.ok)
-    // {
-    //     std::cerr << "no reference data" << std::endl;
-    //     return 1;
-    // }
+    // === Этап 1: чтение конфигурации ===
+    double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 120.0;
+
+    if (readStartupNav(startup_file, start_lon, start_lat, start_alt, align_time))
+    {
+        std::cout << "StartupNav: lon=" << start_lon << " lat=" << start_lat
+                  << " alt=" << start_alt << " time=" << align_time << std::endl;
+    }
+    else
+    {
+        // Fallback: берём координаты из gps.dat (первый отсчёт), время = 120 с
+        std::cout << "StartupNav not found, reading from gps.dat..." << std::endl;
+        data_io::SnsReader sns_tmp;
+        if (!sns_tmp.open(gps_file, angle_file))
+        {
+            std::cerr << "no reference data" << std::endl;
+            return 1;
+        }
+        nav::SnsSample first;
+        sns_tmp.next(first);
+        sns_tmp.close();
+
+        start_lon = first.lon * RAD_TO_DEG;
+        start_lat = first.lat * RAD_TO_DEG;
+        start_alt = first.alt;
+        align_time = 120.0;
+    }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
-    // Широта и время выставки — из StartupNav.ini, высота — из gps.dat.
     double Yaw_0 = 0.0, Pitch_0 = 0.0, Roll_0 = 0.0;
 
     std::cout << "=== Alignment ===" << std::endl;
@@ -82,14 +129,13 @@ int main(int argc, char **argv)
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
 
     // === Этап 3: формирование начального состояния ===
-    // Углы — из автономной выставки, координаты и скорости — из первого отсчёта СНС.
-    nav::NavState state = nav::initialAlignment(scan.first, Yaw_0, Pitch_0, Roll_0);
+    // Координаты — из конфига, скорости — нулевые, углы — из выставки.
+    nav::NavState state = nav::initialAlignment(start_lat * DEG_TO_RAD, start_lon * DEG_TO_RAD, start_alt,
+                                                Yaw_0, Pitch_0, Roll_0);
     std::cout << state.att.heading << "        " << state.att.roll << "        "
               << state.att.pitch << std::endl;
 
     // === Этап 4: открытие потоков данных ===
-    // ImuReader — последовательное чтение imu.dat (заголовок пропускается).
-    // SnsReader — параллельное чтение gps.dat и angle.dat (синхронно построчно).
     data_io::ImuReader imu;
     if (!imu.open(imu_file))
     {
@@ -134,8 +180,6 @@ int main(int argc, char **argv)
     // }
 
     // Основной цикл счисления с фильтром Калмана.
-    // На каждом такте: интегрирование скоростей, координат, ориентации.
-    // Раз в 200 отсчётов (1 Гц): коррекция по эталону.
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))

@@ -87,4 +87,24 @@ inline NavState initialAlignment(const SnsSample &first, double yaw, double pitc
     return initialAlignment(first, att);
 }
 
+// Начальное состояние: координаты из конфига, скорости нулевые, углы из выставки.
+inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
+                                 double yaw, double pitch, double roll)
+{
+    NavState st;
+
+    st.att.heading = yaw;
+    st.att.pitch = pitch;
+    st.att.roll = roll;
+
+    st.lat = lat_rad;
+    st.lon = lon_rad;
+    st.alt = alt;
+
+    st.V = {0.0, 0.0, 0.0};
+
+    st.P = initialCovariance();
+    return st;
+}
+
 } // namespace nav
