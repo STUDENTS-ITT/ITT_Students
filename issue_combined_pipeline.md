@@ -28,7 +28,7 @@ c74c572 Удалён bins_alignment.h, StartupNav.ini: 4 строки (lon, lat,
 **Изменения в `main.cpp`:**
 - Добавлена функция `readStartupNav()` — чтение конфигурации
 - `StartupNav.ini`: 4 строки (lon, lat, alt, time)
-- Fallback: если файл отсутствует — координаты из первого отсчёта `gps.dat`, время = 120 с
+- Запасной вариант: если файл отсутствует — координаты из первого отсчёта `gps.dat`, время = 120 с
 
 **Изменения в `aligner.h`:**
 - Новая перегрузка `initialAlignment(lat_rad, lon_rad, alt, yaw, pitch, roll)`
@@ -141,7 +141,7 @@ out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
 
 **Файл:** `src/navigation/Aligner.cpp`
 
-**Проблема:** `imu.dat` содержит угловые скорости в **рад/с** (подтверждено README и `imu_processor.h`). `get_angle_start()` treats данные как град/с и умножал на `PI / 180.0` в 9 местах.
+**Проблема:** `imu.dat` содержит угловые скорости в **рад/с** (подтверждено README и `imu_processor.h`). `get_angle_start()` обрабатывал данные как град/с и умножал на `PI / 180.0` в 9 местах.
 
 **Исправление:** Убраны все 9 умножений `(PI / 180.0)`:
 - `Wx/Wy/Wz_arr.push_back()` — массивы фильтрации
@@ -202,7 +202,7 @@ out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
 | Файл | Изменения |
 |------|-----------|
 | `src/navigation/bins_alignment.h` | **Удалён** |
-| `src/main.cpp` | readStartupNav(), fallback, get_angle_start(params), initialAlignment(rad) |
+| `src/main.cpp` | readStartupNav(), запасной вариант, get_angle_start(params), initialAlignment(rad) |
 | `src/navigation/Aligner.cpp` | get_angle_start() принимает параметры, удалены 9 конверсий PI/180 |
 | `src/navigation/aligner.hpp` | Объявление get_angle_start() обновлено |
 | `src/navigation/aligner.h` | Новая перегрузка initialAlignment(lat/lon/alt/yaw/pitch/roll) |
