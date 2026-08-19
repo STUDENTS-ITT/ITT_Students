@@ -11,12 +11,45 @@ constexpr int BUF_rot = 3000;
  * @param Pitch Указатель на результирующий тангаж.
  * @param Roll Указатель на результирующий крен.
  * @param IMU_path Путь к файлу imu.dat.
- * @param lat_deg Широта места в градусах (из gps.dat).
- * @param h Высота над уровнем моря в метрах (из gps.dat).
- * @param iter Время окончания выставки в секундах.
+ * @param StartupNav_path Путь к конфигурационному файлу StartupNav.ini.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, double lat_deg, double h, double iter)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path)
 {
+		// Чтение параметров из StartupNav.ini (3 строки)
+		ifstream file_startup(StartupNav_path);
+		if (!file_startup.is_open())
+		{
+				cerr << "Error opening StartupNav file: " << StartupNav_path << "\n";
+				return;
+		}
+
+		string buffer;
+
+		// Строка 1: Долгота (град) — пропускаем
+		getline(file_startup, buffer);
+
+		// Строка 2: Широта (град)
+		double lat_deg = 0.0;
+		if (getline(file_startup, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &lat_deg);
+		}
+
+		// Строка 3: Высота (м)
+		double h = 0.0;
+		if (getline(file_startup, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &h);
+		}
+
+		// Строка 4: Время выставки (сек)
+		double iter = 0.0;
+		if (getline(file_startup, buffer))
+		{
+				sscanf(buffer.c_str(), "%lf", &iter);
+		}
+		file_startup.close();
+
 		// Формула Клеро для расчёта g
 		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
 
@@ -29,7 +62,6 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		}
 
 		// Пропуск строки заголовка
-		string buffer;
 		if (!getline(file_imu, buffer))
 		{
 				cerr << "Error reading IMU file!\n";
