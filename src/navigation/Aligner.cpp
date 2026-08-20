@@ -11,47 +11,17 @@ constexpr int BUF_rot = 3000;
  * @param Pitch Указатель на результирующий тангаж.
  * @param Roll Указатель на результирующий крен.
  * @param IMU_path Путь к файлу imu.dat.
- * @param StartupNav_path Путь к конфигурационному файлу StartupNav.ini.
+ * @param lat_deg Широта места в градусах.
+ * @param h Высота над уровнем моря в метрах.
+ * @param iter Время окончания выставки в секундах.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path, const char* StartupNav_path)
+void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path,
+                     double lat_deg, double h, double iter)
 {
-		// Чтение параметров из StartupNav.ini (3 строки)
-		ifstream file_startup(StartupNav_path);
-		if (!file_startup.is_open())
-		{
-				cerr << "Error opening StartupNav file: " << StartupNav_path << "\n";
-				return;
-		}
-
-		string buffer;
-
-		// Строка 1: Долгота (град) — пропускаем
-		getline(file_startup, buffer);
-
-		// Строка 2: Широта (град)
-		double lat_deg = 0.0;
-		if (getline(file_startup, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &lat_deg);
-		}
-
-		// Строка 3: Высота (м)
-		double h = 0.0;
-		if (getline(file_startup, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &h);
-		}
-
-		// Строка 4: Время выставки (сек)
-		double iter = 0.0;
-		if (getline(file_startup, buffer))
-		{
-				sscanf(buffer.c_str(), "%lf", &iter);
-		}
-		file_startup.close();
-
 		// Формула Клеро для расчёта g
 		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
+
+		string buffer;
 
 		// Открытие файла IMU
 		ifstream file_imu(IMU_path);
@@ -208,18 +178,18 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 						Ax_arr.push_back(Ax);
 						Ay_arr.push_back(Ay);
 						Az_arr.push_back(Az);
-						Wx_arr.push_back(Wx * (PI / 180.0));
-						Wy_arr.push_back(Wy * (PI / 180.0));
-						Wz_arr.push_back(Wz * (PI / 180.0));
+						Wx_arr.push_back(Wx);
+						Wy_arr.push_back(Wy);
+						Wz_arr.push_back(Wz);
 
 						// Накопление сумм для расчёта средних значений
 						Ax_sm += Ax;
 						Ay_sm += Ay;
 						Az_sm += Az;
 
-						Wx_sm += Wx * (PI / 180.0);
-						Wy_sm += Wy * (PI / 180.0);
-						Wz_sm += Wz * (PI / 180.0);
+						Wx_sm += Wx;
+						Wy_sm += Wy;
+						Wz_sm += Wz;
 
 						total_samples++;
 
@@ -229,9 +199,9 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 								Ax_blc[count_ar] = Ax;
 								Ay_blc[count_ar] = Ay;
 								Az_blc[count_ar] = Az;
-								Wx_blc[count_ar] = Wx * (PI / 180.0);
-								Wy_blc[count_ar] = Wy * (PI / 180.0);
-								Wz_blc[count_ar] = Wz * (PI / 180.0);
+								Wx_blc[count_ar] = Wx;
+								Wy_blc[count_ar] = Wy;
+								Wz_blc[count_ar] = Wz;
 						}
 
 						count_ar++;

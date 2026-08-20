@@ -129,9 +129,9 @@ bool SnsReader::next(nav::SnsSample &out)
         out.vh = std::stod(gps[GPS_COL_VH]);
         out.ve = std::stod(gps[GPS_COL_VE]);
 
-        out.heading = std::stod(ang[ANG_COL_YAW]);
-        out.roll = std::stod(ang[ANG_COL_ROLL]);
-        out.pitch = std::stod(ang[ANG_COL_PITCH]);
+        out.heading = std::stod(ang[ANG_COL_YAW]) * DEG_TO_RAD;
+        out.roll = std::stod(ang[ANG_COL_ROLL]) * DEG_TO_RAD;
+        out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
         return true;
     }
     return false;

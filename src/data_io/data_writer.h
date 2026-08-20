@@ -1,9 +1,8 @@
 // data_writer.h — Запись результатов счисления в файлы.
 //
-// NavRecord — структура одной строки выходного файла (траектория БИНС + эталон).
-// NavLogger — запись в два файла: траектория (kalman15_line2.txt) и
-//            вектор ошибок фильтра Калмана (d_1.txt).
-// writeAlignment — запись углов выставки (одноразовый файл Angles.dat).
+// NavResult — строка результата БИНС (исправленный Калманом).
+// NavReference — строка эталона СНС.
+// NavLogger — запись в три файла: result.txt, reference.txt, errors.txt.
 
 #pragma once
 
@@ -15,54 +14,51 @@
 namespace data_io
 {
 
-// Одна строка выходного файла:
-//   - Решение БИНС (координаты, скорости, углы)
-//   - Эталон СНС (координаты, скорости, углы)
-//   - Доп. величины: hdg_true (курс из вращения Земли), lat_bins
-struct NavRecord
+// Результат БИНС (исправленный фильтром Калмана): 10 колонок.
+struct NavResult
 {
     double time = 0;
-
-    double lon = 0;
-    double lat = 0;
-    double heading = 0;
-    double pitch = 0;
-    double roll = 0;
-    double vn = 0;
-    double vh = 0;
-    double ve = 0;
-    double alt = 0;
-
-    double lon_sns = 0;
-    double lat_sns = 0;
-    double alt_sns = 0;
-    double hdg_sns = 0;
-    double roll_sns = 0;
-    double pitch_sns = 0;
-    double vn_sns = 0;
-    double vh_sns = 0;
-    double ve_sns = 0;
-
-    double hdg_true = 0;
-    double lat_bins = 0;
+    double lon = 0;       // град
+    double lat = 0;       // град
+    double alt = 0;       // м
+    double heading = 0;   // град
+    double pitch = 0;     // град
+    double roll = 0;      // град
+    double vn = 0;        // м/с
+    double vh = 0;        // м/с
+    double ve = 0;        // м/с
 };
 
-// Запись углов выставки в файл Angles.dat.
-bool writeAlignment(const std::string &path, double heading, double pitch, double roll);
+// Эталон СНС: 10 колонок.
+struct NavReference
+{
+    double time = 0;
+    double lon = 0;       // град
+    double lat = 0;       // град
+    double alt = 0;       // м
+    double heading = 0;   // град
+    double pitch = 0;     // град
+    double roll = 0;      // град
+    double vn = 0;        // м/с
+    double vh = 0;        // м/с
+    double ve = 0;        // м/с
+};
 
 // Набор файлов для записи результатов.
-// nav_file_ — траектория (21 столбец), error_file_ — 15 ошибок Калмана.
 class NavLogger
 {
 public:
-    bool open(const std::string &nav_path, const std::string &error_path);
+    bool open(const std::string &result_path, const std::string &reference_path,
+              const std::string &error_path);
     void writeHeader();
-    void write(const NavRecord &record);
+    void writeResult(const NavResult &r);
+    void writeReference(const NavReference &r);
     void writeErrors(double time, const Vector &x);
     void close();
 
 private:
-    std::ofstream nav_file_;
+    std::ofstream result_file_;
+    std::ofstream reference_file_;
     std::ofstream error_file_;
 };
 

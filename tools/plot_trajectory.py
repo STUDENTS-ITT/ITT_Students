@@ -1,11 +1,11 @@
 """Сравнение решения Калмана с эталоном.
 
-Читает kalman15_line2.txt и строит 6 графиков:
+Читает result.txt и reference.txt и строит 6 графиков:
   - Курс, тангаж, крен: Калман vs эталон
   - Долгота, широта, высота: Калман vs эталон
 
 Использование:
-    python tools/plot_trajectory.py [путь_к_файлу]
+    python tools/plot_trajectory.py [путь_к_result.txt] [путь_к_reference.txt]
 """
 
 import sys
@@ -28,24 +28,27 @@ def load(path: str) -> np.ndarray:
     raise ValueError(f"Не удалось найти данные в {path}")
 
 
-def plot(data: np.ndarray, save_path: str | None = None):
-    t = data[:, 0]
+def plot(result: np.ndarray, reference: np.ndarray, save_path: str | None = None):
+    t_r = result[:, 0]
+    t_s = reference[:, 0]
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 9), sharex=True)
     fig.suptitle("Калман vs эталон", fontsize=14)
 
+    # result: time, lon, lat, alt, heading, pitch, roll, vn, vh, ve
+    # reference: time, lon, lat, alt, heading, pitch, roll, vn, vh, ve
     panels = [
-        (axes[0, 0], 3,  13, "Курс, град"),
-        (axes[0, 1], 4,  15, "Тангаж, град"),
-        (axes[0, 2], 5,  14, "Крен, град"),
-        (axes[1, 0], 1,  10, "Долгота, град"),
-        (axes[1, 1], 2,  11, "Широта, град"),
-        (axes[1, 2], 9,  12, "Высота, м"),
+        (axes[0, 0], 4,  4, "Курс, град"),
+        (axes[0, 1], 5,  5, "Тангаж, град"),
+        (axes[0, 2], 6,  6, "Крен, град"),
+        (axes[1, 0], 1,  1, "Долгота, град"),
+        (axes[1, 1], 2,  2, "Широта, град"),
+        (axes[1, 2], 3,  3, "Высота, м"),
     ]
 
-    for ax, col_bins, col_sns, ylabel in panels:
-        ax.plot(t, data[:, col_bins], label="Калман", linewidth=0.8)
-        ax.plot(t, data[:, col_sns], label="Эталон", linewidth=0.8, alpha=0.7)
+    for ax, col_r, col_s, ylabel in panels:
+        ax.plot(t_r, result[:, col_r], label="Калман", linewidth=0.8)
+        ax.plot(t_s, reference[:, col_s], label="Эталон", linewidth=0.8, alpha=0.7)
         ax.set_ylabel(ylabel)
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
@@ -61,7 +64,9 @@ def plot(data: np.ndarray, save_path: str | None = None):
 
 
 if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else "kalman15_line2.txt"
-    data = load(path)
-    save_path = path.rsplit(".", 1)[0] + "_comparison.png"
-    plot(data, save_path)
+    result_path = sys.argv[1] if len(sys.argv) > 1 else "result.txt"
+    reference_path = sys.argv[2] if len(sys.argv) > 2 else "reference.txt"
+    result = load(result_path)
+    reference = load(reference_path)
+    save_path = result_path.rsplit(".", 1)[0] + "_comparison.png"
+    plot(result, reference, save_path)

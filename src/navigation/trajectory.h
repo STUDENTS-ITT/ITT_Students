@@ -3,7 +3,7 @@
 // Содержит:
 //   - NavState — полное состояние навигации (координаты, скорости, углы,
 //     смещения ДУС/акселя, вектор ошибок фильтра Калмана)
-//   - makeRecord — формирование строки для записи (БИНС − ошибки Калмана)
+//   - makeResult / makeReference — формирование строк для записи
 //   - step — один такт счисления: интегрирование + коррекция по СНС
 
 #pragma once
@@ -54,39 +54,38 @@ struct NavState
     Vector bg_static = {0.0, 0.0, 0.0};
 };
 
-// Формирование строки для записи: решение БИНС с учётом коррекции Калмана.
-// БИНС_ск = СК_интегр − x[0..8] (поправки фильтра).
-inline data_io::NavRecord makeRecord(double time, const NavState &st, const SnsSample &ref,
-                                     double hdg_true, double lat_bins)
+// Формирование строки результата: БИНС с вычитанием ошибок Калмана.
+inline data_io::NavResult makeResult(double time, const NavState &st)
 {
-    data_io::NavRecord rec;
-    rec.time = time;
+    data_io::NavResult r;
+    r.time = time;
+    r.lon = (st.lon - st.x[1]) * RAD_TO_DEG;
+    r.lat = (st.lat - st.x[0]) * RAD_TO_DEG;
+    r.alt = st.alt - st.x[2];
+    r.heading = normalize_angle(st.att.heading - st.x[6]) * RAD_TO_DEG;
+    r.pitch = normalize_angle(st.att.pitch - st.x[7]) * RAD_TO_DEG;
+    r.roll = normalize_angle(st.att.roll - st.x[8]) * RAD_TO_DEG;
+    r.vn = st.V[0] - st.x[3];
+    r.vh = st.V[1] - st.x[4];
+    r.ve = st.V[2] - st.x[5];
+    return r;
+}
 
-    // Решение БИНС с вычитанием оценки ошибок фильтра.
-    rec.lon = st.lon - st.x[1];
-    rec.lat = st.lat - st.x[0];
-    rec.alt = st.alt - st.x[2];
-    rec.heading = normalize_angle(st.att.heading - st.x[6]);
-    rec.pitch = normalize_angle(st.att.pitch - st.x[7]);
-    rec.roll = normalize_angle(st.att.roll - st.x[8]);
-    rec.vn = st.V[0] - st.x[3];
-    rec.vh = st.V[1] - st.x[4];
-    rec.ve = st.V[2] - st.x[5];
-
-    // Эталон СНС (без изменений).
-    rec.lon_sns = ref.lon;
-    rec.lat_sns = ref.lat;
-    rec.alt_sns = ref.alt;
-    rec.hdg_sns = ref.heading;
-    rec.roll_sns = ref.roll;
-    rec.pitch_sns = ref.pitch;
-    rec.vn_sns = ref.vn;
-    rec.vh_sns = ref.vh;
-    rec.ve_sns = ref.ve;
-
-    rec.hdg_true = hdg_true;
-    rec.lat_bins = lat_bins;
-    return rec;
+// Формирование строки эталона СНС.
+inline data_io::NavReference makeReference(double time, const SnsSample &ref)
+{
+    data_io::NavReference r;
+    r.time = time;
+    r.lon = ref.lon * RAD_TO_DEG;
+    r.lat = ref.lat * RAD_TO_DEG;
+    r.alt = ref.alt;
+    r.heading = ref.heading * RAD_TO_DEG;
+    r.pitch = ref.pitch * RAD_TO_DEG;
+    r.roll = ref.roll * RAD_TO_DEG;
+    r.vn = ref.vn;
+    r.vh = ref.vh;
+    r.ve = ref.ve;
+    return r;
 }
 
 // Один такт счисления БИНС.
@@ -152,11 +151,7 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
         // Коррекция: x += K·(bins − ref), P = (I − K·H)·P
         ins::correct(bins, ref.measurement(), st.x, st.P);
 
-        // Курс из вращения Земли (гирокомпасирование).
-        const double hdg_true = ins::headingFromEarthRate(
-            row[ins::IMU_COL_GYRO] - st.bg_static[0],
-            row[ins::IMU_COL_GYRO + 2] - st.bg_static[2]);
-        // Запись данных для анализа в kalman15
+        // Запись ошибок фильтра (до обнуления).
         log.writeErrors(time_s, st.x);
 
         // Применение коррекций фильтра к состоянию.
@@ -178,8 +173,9 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
         for (int k = 0; k < ins::KF_STATE; k++)
             st.x[k] = 0.0;
 
-        // Запись данных для анализа в kalman15
-        log.write(makeRecord(time_s, st, ref, hdg_true, bins[0]));
+        // Запись результата и эталона.
+        log.writeResult(makeResult(time_s, st));
+        log.writeReference(makeReference(time_s, ref));
     }
 }
 
