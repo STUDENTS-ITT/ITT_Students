@@ -148,8 +148,14 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
                              st.V[0], st.V[1], st.V[2],
                              st.att.heading, st.att.pitch, st.att.roll};
 
-        // Коррекция: x += K·(bins − ref), P = (I − K·H)·P
-        ins::correct(bins, ref.measurement(), st.x, st.P);
+        // Эталон СНС: из ref берем только координаты, скорости и курс.
+        // Тангаж и крен берём из текущего состояния БИНС (инновация = 0 → коррекции нет).
+        const Vector sns = {ref.lat, ref.lon, ref.alt,
+                            ref.vn, ref.vh, ref.ve,
+                            ref.heading, st.att.pitch, st.att.roll};
+
+        // Коррекция: x += K·(bins − sns), P = (I − K·H)·P
+        ins::correct(bins, sns, st.x, st.P);
 
         // Запись ошибок фильтра (до обнуления).
         log.writeErrors(time_s, st.x);
