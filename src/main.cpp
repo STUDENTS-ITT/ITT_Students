@@ -76,6 +76,10 @@ int main(int argc, char **argv)
     const std::string reference_file = "reference.txt";   // эталон СНС
     const std::string err_file = "errors.txt";            // ошибки фильтра
 
+    // Проверяем наличие angle.dat — он опциональный.
+    const bool has_angle = std::filesystem::exists(angle_file);
+    std::cout << "angle.dat: " << (has_angle ? "found" : "not found (angles will be zero)") << std::endl;
+
     const auto start_time = std::chrono::high_resolution_clock::now();
 
     // === Этап 1: чтение конфигурации ===
@@ -91,7 +95,7 @@ int main(int argc, char **argv)
         // Fallback: берём координаты из gps.dat (первый отсчёт), время = 120 с
         std::cout << "StartupNav not found, reading from gps.dat..." << std::endl;
         data_io::SnsReader sns_tmp;
-        if (!sns_tmp.open(gps_file, angle_file))
+        if (!sns_tmp.open(gps_file, has_angle ? angle_file : ""))
         {
             std::cerr << "no reference data" << std::endl;
             return 1;
@@ -131,7 +135,7 @@ int main(int argc, char **argv)
         return 1;
     }
     data_io::SnsReader sns;
-    if (!sns.open(gps_file, angle_file))
+    if (!sns.open(gps_file, has_angle ? angle_file : ""))
     {
         return 1;
     }
