@@ -19,6 +19,7 @@
 #include "../utils/types.h"
 #include "gps_processor.h"
 #include "position_calc.h"
+#include "aligner.hpp"
 
 namespace nav
 {
@@ -91,10 +92,10 @@ inline data_io::NavReference makeReference(double time, const SnsSample &ref)
 // Один такт счисления БИНС.
 // На каждом шаге:
 //   1. Интегрирование скоростей, координат, ориентации по данным ИМУ.
-//   2. Раз в SNS_DECIMATION отсчётов (1 Гц) — коррекция по эталону СНС.
+//   2. Если do_correction = true — коррекция по эталону СНС.
 //   3. Запись результатов в файл.
-inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
-                 NavState &st, data_io::NavLogger &log)
+inline void step(const std::vector<double> &row, const SnsSample &ref,
+                 NavState &st, data_io::NavLogger &log, bool do_correction)
 {
     const double time_s = ins::sampleTime(row);
     double dt = time_s - st.time_prev;
@@ -119,9 +120,73 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
     const Position pos = integratePosition(st.lat, st.lon, st.alt, V,
                                            st.lat_dot_prev, st.lon_dot_prev, st.alt_dot_prev, dt);
 
+    // Акс-коррекция pitch/roll
+    const float ACC_TOLERANCE = 0.3;
+    const float GYRO_TOLERANCE = 0.15;
+    const float ANGLE_DEADZONE = 0.003;
+    const float K_P_BASE = 0.02;
+
+    float roll_rate_corr = 0.0;
+    float pitch_rate_corr = 0.0;
+
+    // Не мешаем Калману на кадре СНС-коррекции
+    // Сырой аксель 
+    const Vector f_body = ins::accel(row, st.ba);
+
+    const Vector V_dot_nav = {static_cast<double>(V_dot[0]), static_cast<double>(V_dot[1]), static_cast<double>(V_dot[2])};
+
+    const Vector V_dot_body = navToBody(transpose_m(C, 3), V_dot_nav);
+
+    const float ax_grav = static_cast<float>(f_body[0] - V_dot_body[0]);
+    const float ay_grav = static_cast<float>(f_body[1] - V_dot_body[1]);
+    const float az_grav = static_cast<float>(f_body[2] - V_dot_body[2]);
+
+    const float acc_mag = sqrt(ax_grav * ax_grav + ay_grav * ay_grav + az_grav * az_grav);
+    const float acc_error = fabs(acc_mag - static_cast<float>(calculate_g(st.lat, st.alt)));
+
+    const Vector gyro_raw = ins::gyro(row, st.bg);
+    const float gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] + gyro_raw[1] * gyro_raw[1] + gyro_raw[2] * gyro_raw[2]);
+
+    if (acc_error <= ACC_TOLERANCE && gyro_mag <= GYRO_TOLERANCE)
+    {
+        const float pitch_acc = atan2(ax_grav, ay_grav);
+        const float roll_acc  = -atan2(az_grav, ay_grav);
+        const float trust = (1.0 - (acc_error / ACC_TOLERANCE)) * (1.0 - (gyro_mag / GYRO_TOLERANCE));
+        const float k_p = K_P_BASE * trust;
+
+        float roll_err  = k_p * (roll_acc  - static_cast<float>(st.att.roll));
+        float pitch_err = k_p * (pitch_acc - static_cast<float>(st.att.pitch));
+
+        if (fabs(roll_err) <= ANGLE_DEADZONE)
+        {
+            roll_rate_corr = 0.0;
+        }
+
+        else
+        {
+            float sign = (roll_err > 0.0) ? 1.0 : -1.0;
+            roll_rate_corr = k_p * (roll_err - sign * ANGLE_DEADZONE);
+        }
+
+        if (fabs(pitch_err) <= ANGLE_DEADZONE)
+        {
+            pitch_rate_corr = 0.0;
+        }
+
+        else
+        {
+            float sign = (pitch_err > 0.0) ? 1.0 : -1.0;
+            pitch_rate_corr = k_p * (pitch_err - sign * ANGLE_DEADZONE);
+        }
+    }
+
     // Интегрирование углов ориентации.
+    // const Vector w_nav = navAngularRate(st.lat, V, R_EARTH + st.alt);
+    // const Vector w_rel = ins::relativeRate(ins::gyro(row, st.bg), w_nav, C);
     const Vector w_nav = navAngularRate(st.lat, V, R_EARTH + st.alt);
-    const Vector w_rel = ins::relativeRate(ins::gyro(row, st.bg), w_nav, C);
+    Vector w_rel = ins::relativeRate(ins::gyro(row, st.bg), w_nav, C);
+    w_rel[0] += roll_rate_corr;
+    w_rel[2] += pitch_rate_corr;
     const ins::AttitudeRates rates = ins::eulerRates(w_rel, st.att.pitch, st.att.roll);
     const ins::Attitude att = ins::integrate(st.att, rates, st.rates_prev, dt);
 
@@ -140,16 +205,22 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
     st.rates_prev = rates;
     st.time_prev = time_s;
 
-    // Коррекция по СНС (раз в SNS_DECIMATION = 200 отсчётов, 1 Гц).
-    if (i % SNS_DECIMATION == 0)
+    // Коррекция по СНС (только когда gps обновился).
+    if (do_correction)
     {
         // Текущее решение БИНС (9 компонент) для вектора инновации.
         const Vector bins = {st.lat, st.lon, st.alt,
                              st.V[0], st.V[1], st.V[2],
                              st.att.heading, st.att.pitch, st.att.roll};
 
-        // Коррекция: x += K·(bins − ref), P = (I − K·H)·P
-        ins::correct(bins, ref.measurement(), st.x, st.P);
+        // Эталон СНС: из ref берем только координаты, скорости и курс.
+        // Тангаж и крен берём из текущего состояния БИНС (инновация = 0 → коррекции нет).
+        const Vector sns = {ref.lat, ref.lon, ref.alt,
+                            ref.vn, ref.vh, ref.ve,
+                            ref.heading, st.att.pitch, st.att.roll};
+
+        // Коррекция: x += K·(bins − sns), P = (I − K·H)·P
+        ins::correct(bins, sns, st.x, st.P);
 
         // Запись ошибок фильтра (до обнуления).
         log.writeErrors(time_s, st.x);
@@ -173,10 +244,12 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
         for (int k = 0; k < ins::KF_STATE; k++)
             st.x[k] = 0.0;
 
-        // Запись результата и эталона.
-        log.writeResult(makeResult(time_s, st));
+        // Запись эталона СНС (только при обновлении gps).
         log.writeReference(makeReference(time_s, ref));
     }
+
+    // Запись результата на каждом такте (200 Гц).
+    log.writeResult(makeResult(time_s, st));
 }
 
 } // namespace nav

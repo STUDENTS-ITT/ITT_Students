@@ -5,10 +5,11 @@
 //   Формат: time_s  timestamp_ns  wx  wy  wz  ax  ay  az
 //
 // SnsReader:
-//   Параллельно читает gps.dat и angle.dat (синхронно построчно).
+//   Читает gps.dat (обязательный) и angle.dat (опциональный).
 //   Формат gps.dat:  time_s  timestamp_ns  latitude  longitude  altitude  vx  vy  vz
 //   Формат angle.dat: time_s  timestamp_ns  roll  pitch  yaw
 //   Координаты переводятся из градусов в радианы.
+//   Если angle.dat отсутствует — углы ориентации заполняются нулями.
 
 #pragma once
 
@@ -40,12 +41,13 @@ private:
     std::string line_;
 };
 
-// Чтение gps.dat + angle.dat: синхронно построчно, формирует SnsSample.
+// Чтение gps.dat + angle.dat (опциональный): формирует SnsSample.
 // Координаты переводятся в радианы.
+// Если angle.dat не задан — углы orientation = 0.
 class SnsReader
 {
 public:
-    bool open(const std::string &gps_path, const std::string &angle_path);
+    bool open(const std::string &gps_path, const std::string &angle_path = "");
     bool next(nav::SnsSample &out);
     void close();
 
@@ -54,6 +56,7 @@ private:
     std::ifstream angle_;
     std::string gps_line_;
     std::string angle_line_;
+    bool has_angle_ = false;
 };
 
 } // namespace data_io

@@ -88,7 +88,7 @@ void ImuReader::close()
     file_.close();
 }
 
-// Открытие gps.dat и angle.dat, пропуск заголовков.
+// Открытие gps.dat (обязательный) и angle.dat (опциональный).
 bool SnsReader::open(const std::string &gps_path, const std::string &angle_path)
 {
     gps_.open(gps_path);
@@ -97,50 +97,88 @@ bool SnsReader::open(const std::string &gps_path, const std::string &angle_path)
         reportOpenError(gps_path);
         return false;
     }
-    angle_.open(angle_path);
-    if (!angle_.is_open())
+    std::getline(gps_, gps_line_);  // пропуск заголовка
+
+    // angle.dat опциональный: если путь пустой или файл не открывается — работаем без него.
+    has_angle_ = false;
+    if (!angle_path.empty())
     {
-        reportOpenError(angle_path);
-        return false;
+        angle_.open(angle_path);
+        if (angle_.is_open())
+        {
+            std::getline(angle_, angle_line_);  // пропуск заголовка
+            has_angle_ = true;
+        }
     }
-    std::getline(gps_, gps_line_);      // пропуск заголовка
-    std::getline(angle_, angle_line_);  // пропуск заголовка
     return true;
 }
 
-// Чтение следующей пары строк (gps.dat + angle.dat), заполнение SnsSample.
+// Чтение следующей строки gps.dat (+ angle.dat если есть), заполнение SnsSample.
 // Координаты из gps.dat переводятся из градусов в радианы.
 bool SnsReader::next(nav::SnsSample &out)
 {
-    while (std::getline(gps_, gps_line_) && std::getline(angle_, angle_line_))
+    if (has_angle_)
     {
-        const std::vector<std::string> gps = splitLine(gps_line_);
-        const std::vector<std::string> ang = splitLine(angle_line_);
-        if (gps.size() < GPS_MIN_COLS || ang.size() < ANG_MIN_COLS)
+        // Совместное чтение gps.dat и angle.dat (синхронно построчно).
+        while (std::getline(gps_, gps_line_) && std::getline(angle_, angle_line_))
         {
-            continue;
+            const std::vector<std::string> gps = splitLine(gps_line_);
+            const std::vector<std::string> ang = splitLine(angle_line_);
+            if (gps.size() < GPS_MIN_COLS || ang.size() < ANG_MIN_COLS)
+            {
+                continue;
+            }
+
+            out.time = std::stod(gps[GPS_COL_TIME]);
+            out.lat = std::stod(gps[GPS_COL_LAT]) * DEG_TO_RAD;
+            out.lon = std::stod(gps[GPS_COL_LON]) * DEG_TO_RAD;
+            out.alt = std::stod(gps[GPS_COL_ALT]);
+            out.vn = std::stod(gps[GPS_COL_VN]);
+            out.vh = std::stod(gps[GPS_COL_VH]);
+            out.ve = std::stod(gps[GPS_COL_VE]);
+
+            out.heading = std::stod(ang[ANG_COL_YAW]) * DEG_TO_RAD;
+            out.roll = std::stod(ang[ANG_COL_ROLL]) * DEG_TO_RAD;
+            out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
+            return true;
         }
-
-        out.time = std::stod(gps[GPS_COL_TIME]);
-        out.lat = std::stod(gps[GPS_COL_LAT]) * DEG_TO_RAD;
-        out.lon = std::stod(gps[GPS_COL_LON]) * DEG_TO_RAD;
-        out.alt = std::stod(gps[GPS_COL_ALT]);
-        out.vn = std::stod(gps[GPS_COL_VN]);
-        out.vh = std::stod(gps[GPS_COL_VH]);
-        out.ve = std::stod(gps[GPS_COL_VE]);
-
-        out.heading = std::stod(ang[ANG_COL_YAW]) * DEG_TO_RAD;
-        out.roll = std::stod(ang[ANG_COL_ROLL]) * DEG_TO_RAD;
-        out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
-        return true;
+        return false;
     }
-    return false;
+    else
+    {
+        // Чтение только gps.dat, углы — нули.
+        while (std::getline(gps_, gps_line_))
+        {
+            const std::vector<std::string> gps = splitLine(gps_line_);
+            if (gps.size() < GPS_MIN_COLS)
+            {
+                continue;
+            }
+
+            out.time = std::stod(gps[GPS_COL_TIME]);
+            out.lat = std::stod(gps[GPS_COL_LAT]) * DEG_TO_RAD;
+            out.lon = std::stod(gps[GPS_COL_LON]) * DEG_TO_RAD;
+            out.alt = std::stod(gps[GPS_COL_ALT]);
+            out.vn = std::stod(gps[GPS_COL_VN]);
+            out.vh = std::stod(gps[GPS_COL_VH]);
+            out.ve = std::stod(gps[GPS_COL_VE]);
+
+            out.heading = 0.0;
+            out.roll = 0.0;
+            out.pitch = 0.0;
+            return true;
+        }
+        return false;
+    }
 }
 
 void SnsReader::close()
 {
     gps_.close();
-    angle_.close();
+    if (has_angle_)
+    {
+        angle_.close();
+    }
 }
 
 } // namespace data_io

@@ -38,9 +38,6 @@ constexpr double IMU_RATE_HZ = 200.0;
 // Шаг дискретизации ИМУ, с.
 constexpr double IMU_PERIOD = 1.0 / IMU_RATE_HZ;
 
-// Коррекция от СНС выполняется раз в SNS_DECIMATION отсчётов ИМУ (1 Гц).
-constexpr int SNS_DECIMATION = 200;
-
 // Коэффициенты перевода единиц.
 constexpr double DEG_TO_RAD = PI / 180.0;
 constexpr double RAD_TO_DEG = 180.0 / PI;

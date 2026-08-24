@@ -5,8 +5,8 @@
 //   2. Автономная выставка (Median + EMA фильтры) — начальные углы ориентации.
 //   3. Формирование начального состояния: углы из выставки, координаты из конфига,
 //      скорости нулевые.
-//   4. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, коррекция
-//      по СНС каждые 200 отсчётов (1 Гц), запись результатов.
+//   4. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, запись
+//      результатов (200 Гц), коррекция по СНС при обновлении gps (~10 Гц).
 
 #include <chrono>
 #include <cstdio>
@@ -76,6 +76,10 @@ int main(int argc, char **argv)
     const std::string reference_file = "reference.txt";   // эталон СНС
     const std::string err_file = "errors.txt";            // ошибки фильтра
 
+    // Проверяем наличие angle.dat — он опциональный.
+    const bool has_angle = std::filesystem::exists(angle_file);
+    std::cout << "angle.dat: " << (has_angle ? "found" : "not found (angles will be zero)") << std::endl;
+
     const auto start_time = std::chrono::high_resolution_clock::now();
 
     // === Этап 1: чтение конфигурации ===
@@ -91,7 +95,7 @@ int main(int argc, char **argv)
         // Fallback: берём координаты из gps.dat (первый отсчёт), время = 120 с
         std::cout << "StartupNav not found, reading from gps.dat..." << std::endl;
         data_io::SnsReader sns_tmp;
-        if (!sns_tmp.open(gps_file, angle_file))
+        if (!sns_tmp.open(gps_file, has_angle ? angle_file : ""))
         {
             std::cerr << "no reference data" << std::endl;
             return 1;
@@ -131,7 +135,7 @@ int main(int argc, char **argv)
         return 1;
     }
     data_io::SnsReader sns;
-    if (!sns.open(gps_file, angle_file))
+    if (!sns.open(gps_file, has_angle ? angle_file : ""))
     {
         return 1;
     }
@@ -146,21 +150,47 @@ int main(int argc, char **argv)
 
     std::vector<double> row;   // строка imu.dat
     nav::SnsSample ref;        // отсчёт эталона (gps + angle)
-    int i = 0;                 // счётчик отсчётов ИМУ
+    nav::SnsSample last_ref;   // последний прочитанный отсчёт СНС
+    bool has_ref = false;      // был ли прочитан хотя бы один отсчёт СНС
 
     // Основной цикл счисления с фильтром Калмана.
+    // imu.dat читается на каждом такте (200 Гц).
+    // gps.dat читается по мере появления новых данных (сопоставление по времени).
+    // Коррекция выполняется только в момент обновления gps.
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))
         {
             continue;
         }
-        if (!sns.next(ref))
+
+        const double imu_time = row[0];
+        const double prev_gps_time = has_ref ? last_ref.time : -1.0;
+
+        // Подтягиваем gps.dat пока время gps <= время imu.
+        while (!has_ref || last_ref.time <= imu_time)
         {
-            break;
+            if (!sns.next(last_ref))
+            {
+                break;
+            }
+            has_ref = true;
+            if (last_ref.time > imu_time)
+            {
+                break;
+            }
         }
-        nav::step(i, row, ref, state, log);
-        i++;
+
+        if (!has_ref)
+        {
+            continue;
+        }
+
+        // Коррекция только если gps обновился (время изменилось).
+        const bool do_correction = (last_ref.time != prev_gps_time);
+
+        ref = last_ref;
+        nav::step(row, ref, state, log, do_correction);
     }
 
     imu.close();
