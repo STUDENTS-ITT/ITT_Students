@@ -41,6 +41,9 @@ constexpr double IMU_PERIOD = 1.0 / IMU_RATE_HZ;
 // Коррекция от СНС выполняется раз в SNS_DECIMATION отсчётов ИМУ (1 Гц).
 constexpr int SNS_DECIMATION = 200;
 
+// Чтение gps.dat выполняется раз в GPS_DECIMATION отсчётов ИМУ (10 Гц).
+constexpr int GPS_DECIMATION = 20;
+
 // Коэффициенты перевода единиц.
 constexpr double DEG_TO_RAD = PI / 180.0;
 constexpr double RAD_TO_DEG = 180.0 / PI;

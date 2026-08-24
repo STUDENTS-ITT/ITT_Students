@@ -150,19 +150,32 @@ int main(int argc, char **argv)
 
     std::vector<double> row;   // строка imu.dat
     nav::SnsSample ref;        // отсчёт эталона (gps + angle)
+    nav::SnsSample last_ref;   // последний прочитанный отсчёт СНС
     int i = 0;                 // счётчик отсчётов ИМУ
+    bool has_ref = false;      // был ли прочитан хотя бы один отсчёт СНС
 
     // Основной цикл счисления с фильтром Калмана.
+    // imu.dat читается на каждом такте (200 Гц).
+    // gps.dat читается каждые GPS_DECIMATION отсчётов ИМУ (10 Гц).
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))
         {
             continue;
         }
-        if (!sns.next(ref))
+        // Чтение СНС каждые 20 отсчётов ИМУ (= 10 Гц).
+        if (i % GPS_DECIMATION == 0)
         {
-            break;
+            if (sns.next(last_ref))
+            {
+                has_ref = true;
+            }
         }
+        if (!has_ref)
+        {
+            continue;
+        }
+        ref = last_ref;
         nav::step(i, row, ref, state, log);
         i++;
     }
