@@ -86,7 +86,7 @@ void NavLogger::writeHeader()
 
 void NavLogger::writeResult(const NavResult &r)
 {
-    result_file_ << std::left
+    result_file_ << std::left << std::fixed << std::setprecision(4)
                  << std::setw(COL) << r.time
                  << std::setw(COL) << r.lon
                  << std::setw(COL) << r.lat
@@ -102,7 +102,7 @@ void NavLogger::writeResult(const NavResult &r)
 
 void NavLogger::writeReference(const NavReference &r)
 {
-    reference_file_ << std::left
+    reference_file_ << std::left << std::fixed << std::setprecision(4)
                     << std::setw(COL) << r.time
                     << std::setw(COL) << r.lon
                     << std::setw(COL) << r.lat
@@ -118,7 +118,7 @@ void NavLogger::writeReference(const NavReference &r)
 
 void NavLogger::writeErrors(double time, const Vector &x)
 {
-    error_file_ << std::left << std::setw(COL) << time;
+    error_file_ << std::left << std::fixed << std::setprecision(4) << std::setw(COL) << time;
     for (std::size_t k = 0; k < x.size(); k++)
     {
         error_file_ << std::setw(COL) << x[k];

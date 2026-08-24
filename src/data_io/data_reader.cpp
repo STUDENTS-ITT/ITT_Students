@@ -114,7 +114,7 @@ bool SnsReader::open(const std::string &gps_path, const std::string &angle_path)
 }
 
 // Чтение следующей строки gps.dat (+ angle.dat если есть), заполнение SnsSample.
-// Координаты из gps.dat переводятся из градусов в радианы.
+// Координаты gps.dat переводятся из градусов в радианы; углы angle.dat — уже рад.
 bool SnsReader::next(nav::SnsSample &out)
 {
     if (has_angle_)
@@ -137,9 +137,10 @@ bool SnsReader::next(nav::SnsSample &out)
             out.vh = std::stod(gps[GPS_COL_VH]);
             out.ve = std::stod(gps[GPS_COL_VE]);
 
-            out.heading = std::stod(ang[ANG_COL_YAW]) * DEG_TO_RAD;
-            out.roll = std::stod(ang[ANG_COL_ROLL]) * DEG_TO_RAD;
-            out.pitch = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
+            // angle.dat: roll, pitch, yaw уже в радианах (см. README).
+            out.heading = std::stod(ang[ANG_COL_YAW]);
+            out.roll = std::stod(ang[ANG_COL_ROLL]);
+            out.pitch = std::stod(ang[ANG_COL_PITCH]);
             return true;
         }
         return false;

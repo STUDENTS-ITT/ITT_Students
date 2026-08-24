@@ -6,7 +6,8 @@
 //   3. Формирование начального состояния: углы из выставки, координаты из конфига,
 //      скорости нулевые.
 //   4. Основной цикл: на каждом такте ИМУ — интегрирование БИНС, запись
-//      результатов (200 Гц), коррекция по СНС при обновлении gps (~10 Гц).
+//      результатов (400 Гц), коррекция pitch/roll по акселю (400 Гц),
+//      коррекция по СНС при обновлении gps (1 Гц).
 
 #include <chrono>
 #include <cstdio>
@@ -67,14 +68,17 @@ int main(int argc, char **argv)
     // Каталог с входными данными (относительно рабочего каталога).
     const std::string data_dir = "../data/raw";
 
-    // Имена файлов данных и результатов.
+    // Результаты всегда в tools/ — plot_trajectory.py читает оттуда.
+    const std::filesystem::path tools_dir = utils::toolsDir(argv[0]);
+    const std::string result_file = (tools_dir / "result.txt").string();
+    const std::string reference_file = (tools_dir / "reference.txt").string();
+    const std::string err_file = (tools_dir / "errors.txt").string();
+
+    // Имена входных файлов.
     const std::string imu_file = data_dir + "/imu.dat";
     const std::string gps_file = data_dir + "/gps.dat";
     const std::string angle_file = data_dir + "/angle.dat";
     const std::string startup_file = data_dir + "/StartupNav.ini";
-    const std::string result_file = "result.txt";        // результат БИНС
-    const std::string reference_file = "reference.txt";   // эталон СНС
-    const std::string err_file = "errors.txt";            // ошибки фильтра
 
     // Проверяем наличие angle.dat — он опциональный.
     const bool has_angle = std::filesystem::exists(angle_file);
@@ -83,7 +87,7 @@ int main(int argc, char **argv)
     const auto start_time = std::chrono::high_resolution_clock::now();
 
     // === Этап 1: чтение конфигурации ===
-    double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 120.0;
+    double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 332.0;
 
     if (readStartupNav(startup_file, start_lon, start_lat, start_alt, align_time))
     {
@@ -92,7 +96,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        // Fallback: берём координаты из gps.dat (первый отсчёт), время = 120 с
+        // Fallback: берём координаты из gps.dat (первый отсчёт), время = 332 с
         std::cout << "StartupNav not found, reading from gps.dat..." << std::endl;
         data_io::SnsReader sns_tmp;
         if (!sns_tmp.open(gps_file, has_angle ? angle_file : ""))
@@ -107,26 +111,31 @@ int main(int argc, char **argv)
         start_lon = first.lon * RAD_TO_DEG;
         start_lat = first.lat * RAD_TO_DEG;
         start_alt = first.alt;
-        align_time = 120.0;
+        align_time = 332.0;
     }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
     double Yaw_0 = 0.0, Pitch_0 = 0.0, Roll_0 = 0.0;
+    double ba_x = 0.0, ba_y = 0.0, ba_z = 0.0;
 
     std::cout << "=== Alignment ===" << std::endl;
-    get_angle_start(&Yaw_0, &Pitch_0, &Roll_0,
+    get_angle_start(&Yaw_0, &Pitch_0, &Roll_0, &ba_x, &ba_y, &ba_z,
                     imu_file.c_str(),
                     start_lat, start_alt, align_time);
     std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
+    std::cout << "ba: " << ba_x << ", " << ba_y << ", " << ba_z << std::endl;
+
+    const Vector ba0 = {ba_x, ba_y, ba_z};
 
     // === Этап 3: формирование начального состояния ===
     // Координаты — из конфига, скорости — нулевые, углы — из выставки.
     nav::NavState state = nav::initialAlignment(start_lat * DEG_TO_RAD, start_lon * DEG_TO_RAD, start_alt,
-                                                Yaw_0, Pitch_0, Roll_0);
+                                                Yaw_0, Pitch_0, Roll_0, ba0);
     std::cout << state.att.heading << "        " << state.att.roll << "        "
               << state.att.pitch << std::endl;
+    std::cout << "Output: " << tools_dir.string() << std::endl;
 
     // === Этап 4: открытие потоков данных ===
     data_io::ImuReader imu;
@@ -154,9 +163,9 @@ int main(int argc, char **argv)
     bool has_ref = false;      // был ли прочитан хотя бы один отсчёт СНС
 
     // Основной цикл счисления с фильтром Калмана.
-    // imu.dat читается на каждом такте (200 Гц).
-    // gps.dat читается по мере появления новых данных (сопоставление по времени).
-    // Коррекция выполняется только в момент обновления gps.
+    // imu.dat читается на каждом такте (400 Гц).
+    // gps.dat читается по мере появления новых данных (1 Гц).
+    // Коррекция по СНС выполняется только в момент обновления gps.
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))

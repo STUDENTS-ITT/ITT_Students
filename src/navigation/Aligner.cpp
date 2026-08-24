@@ -1,5 +1,8 @@
 #include "aligner.hpp"
 
+#include "../math_lib/matrix_ops.h"
+#include "../math_lib/transformations.h"
+
 using namespace std;
 
 // Размер буфера для накопления и обработки данных поворотного блока
@@ -10,13 +13,17 @@ constexpr int BUF_rot = 3000;
  * @param Yaw Указатель на результирующий курс (рыскание).
  * @param Pitch Указатель на результирующий тангаж.
  * @param Roll Указатель на результирующий крен.
+ * @param ba_x Указатель на смещение акселя по X (или nullptr).
+ * @param ba_y Указатель на смещение акселя по Y (или nullptr).
+ * @param ba_z Указатель на смещение акселя по Z (или nullptr).
  * @param IMU_path Путь к файлу imu.dat.
  * @param lat_deg Широта места в градусах.
  * @param h Высота над уровнем моря в метрах.
  * @param iter Время окончания выставки в секундах.
  */
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path,
-                     double lat_deg, double h, double iter)
+void get_angle_start(double *Yaw, double *Pitch, double *Roll,
+                     double *ba_x, double *ba_y, double *ba_z,
+                     const char *IMU_path, double lat_deg, double h, double iter)
 {
 		// Формула Клеро для расчёта g
 		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
@@ -84,7 +91,7 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 
 
 		int is_first_block = 1; // Флаг первого блока для EMA фильтра
-		double SAMPLE_RATE = 200.0; // Частота измерений IMU (Гц)
+		double SAMPLE_RATE = 400.0; // Частота измерений IMU (Гц)
 		double CUTOFF_FREQ = 1.0; // Частота среза фильтра (Гц)
 		double alpha = calculate_alpha(CUTOFF_FREQ, SAMPLE_RATE);
 
@@ -282,4 +289,19 @@ void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_p
 		*Pitch = final_pitch_mean;
 		*Roll = final_roll_mean;
 
+		// Смещение акселерометра: f_mean − C^T·[0, g, 0] при покое.
+		if (ba_x != nullptr && ba_y != nullptr && ba_z != nullptr && total_samples > 0)
+		{
+				const double ax_mean = Ax_sm / total_samples;
+				const double ay_mean = Ay_sm / total_samples;
+				const double az_mean = Az_sm / total_samples;
+
+				const Matrix C = bodyToNavMatrix(final_yaw_mean, final_pitch_mean, final_roll_mean);
+				const Vector g_nav = {0.0, g, 0.0};
+				const Vector f_expected = navToBody(C, g_nav);
+
+				*ba_x = ax_mean - f_expected[0];
+				*ba_y = ay_mean - f_expected[1];
+				*ba_z = az_mean - f_expected[2];
+		}
 }

@@ -59,19 +59,19 @@ inline Matrix Qj_matrix(double T)
 }
 
 // Матрица шума измерений R (диагональная).
-// Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с, углы ~1°.
-inline Matrix Rj_matrix()
+// Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с.
+// Углы: курс — из СНС (sig_hdg), крен/тангаж — из акселя (sig_pitch, sig_roll).
+inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
 {
     const double sig_pos = 5.0 / R_EARTH;   // позиция в радианах
     const double sig_h = 5.0;               // высота, м
     const double sig_v = 0.1;               // скорость, м/с
-    const double sig_ang = 1.0 * DEG_TO_RAD; // угол, рад
 
     Matrix Rj(KF_MEAS * KF_MEAS, 0);
     const double rdiag[KF_MEAS] = {
         sig_pos * sig_pos, sig_pos * sig_pos, sig_h * sig_h,
         sig_v * sig_v, sig_v * sig_v, sig_v * sig_v,
-        sig_ang * sig_ang, sig_ang * sig_ang, sig_ang * sig_ang};
+        sig_hdg * sig_hdg, sig_pitch * sig_pitch, sig_roll * sig_roll};
     for (int i = 0; i < KF_MEAS; i++)
         at(Rj, i, i, KF_MEAS) = rdiag[i];
     return Rj;
@@ -165,7 +165,8 @@ inline void predict(double T, double lat, double alt, const Matrix &C,
 //   K = P·H^T·(H·P·H^T + R)^{-1}
 //   x = x + K·(z − H·x)
 //   P = (I − K·H)·P
-inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
+inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
+                    double sig_hdg, double sig_pitch, double sig_roll)
 {
     // Инновация: разность БИНС и СНС.
     Vector zj = vector_diff(bins, sns);
@@ -181,7 +182,7 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
     const Matrix P_HTj = multiply_matrix(P, HTj, KF_STATE, KF_MEAS);
     const Matrix S = matrix_sum(
         multiply_matrix(multiply_matrix(Hj, P, KF_STATE, KF_STATE), HTj, KF_STATE, KF_MEAS),
-        Rj_matrix(), KF_MEAS);
+        Rj_matrix(sig_hdg, sig_pitch, sig_roll), KF_MEAS);
 
     // Коэффициент усиления Калмана: K = P·H^T·S^{-1}.
     const Matrix Kj = multiply_matrix(P_HTj, return_matrix(S, KF_MEAS), KF_MEAS, KF_MEAS);
@@ -196,6 +197,57 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
     // Коррекция ковариации: P = (I − K·H)·P.
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
+    P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
+}
+
+// Размерность вектора измерений для коррекции только по тангажу/крену.
+constexpr int KF_TILT_MEAS = 2;
+
+inline Matrix R_tilt_matrix(double sig_pitch, double sig_roll)
+{
+    Matrix R(KF_TILT_MEAS * KF_TILT_MEAS, 0);
+    at(R, 0, 0, KF_TILT_MEAS) = sig_pitch * sig_pitch;
+    at(R, 1, 1, KF_TILT_MEAS) = sig_roll * sig_roll;
+    return R;
+}
+
+inline Matrix H_tilt_matrix()
+{
+    Matrix H(KF_TILT_MEAS * KF_STATE, 0);
+    at(H, 0, 7, KF_STATE) = 1.0;
+    at(H, 1, 8, KF_STATE) = 1.0;
+    return H;
+}
+
+// Коррекция только pitch/roll (на каждом такте ИМУ, 400 Гц).
+inline void correctTilt(double pitch_bins, double roll_bins,
+                        double pitch_meas, double roll_meas,
+                        double sig_pitch, double sig_roll,
+                        Vector &x, Matrix &P)
+{
+    Vector z = {normalize_angle(pitch_bins - pitch_meas),
+                normalize_angle(roll_bins - roll_meas)};
+
+    const Matrix H = H_tilt_matrix();
+    const Matrix HT = transpose_m(H, KF_STATE);
+
+    const Matrix P_HT = multiply_matrix(P, HT, KF_STATE, KF_TILT_MEAS);
+    const Matrix S = matrix_sum(
+        multiply_matrix(multiply_matrix(H, P, KF_STATE, KF_STATE), HT, KF_STATE, KF_TILT_MEAS),
+        R_tilt_matrix(sig_pitch, sig_roll), KF_TILT_MEAS);
+
+    const Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_TILT_MEAS), KF_TILT_MEAS, KF_TILT_MEAS);
+
+    Vector innov = vector_diff(z, multiply_m(H, x, KF_STATE));
+    innov[0] = normalize_angle(innov[0]);
+    innov[1] = normalize_angle(innov[1]);
+
+    x = vector_sum(x, multiply_m(K, innov, KF_TILT_MEAS));
+
+    const Matrix E_KH = matrix_diff(
+        E_matrix(KF_STATE),
+        multiply_matrix(K, H, KF_TILT_MEAS, KF_STATE),
+        KF_STATE);
     P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
 }
 

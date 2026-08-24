@@ -24,7 +24,7 @@ namespace nav
 //   - высота ~10 м
 //   - скорость ~2.5 м/с
 //   - курс ~15°
-//   - крен/тангаж ~0.1°
+//   - крен/тангаж ~1°
 //   - смещения акселя/гиро — малые начальные оценки
 inline Matrix initialCovariance()
 {
@@ -32,7 +32,7 @@ inline Matrix initialCovariance()
     const double p_h = 10.0;
     const double p_v = 2.5;
     const double p_hdg = (15.0 * DEG_TO_RAD) * (15.0 * DEG_TO_RAD);
-    const double p_tilt = (0.1 * DEG_TO_RAD) * (0.1 * DEG_TO_RAD);
+    const double p_tilt = (1.0 * DEG_TO_RAD) * (1.0 * DEG_TO_RAD);
     const double p_ba = 9e-6;
     const double p_bg = 1e-8;
 
@@ -89,7 +89,8 @@ inline NavState initialAlignment(const SnsSample &first, double yaw, double pitc
 
 // Начальное состояние: координаты из конфига, скорости нулевые, углы из выставки.
 inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
-                                 double yaw, double pitch, double roll)
+                                 double yaw, double pitch, double roll,
+                                 const Vector &ba_init = {0.0, 0.0, 0.0})
 {
     NavState st;
 
@@ -102,6 +103,8 @@ inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
     st.alt = alt;
 
     st.V = {0.0, 0.0, 0.0};
+    st.ba = ba_init;
+    st.bg = {0.0, 0.0, 0.0};
 
     st.P = initialCovariance();
     return st;
