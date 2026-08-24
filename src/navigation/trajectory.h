@@ -91,10 +91,10 @@ inline data_io::NavReference makeReference(double time, const SnsSample &ref)
 // Один такт счисления БИНС.
 // На каждом шаге:
 //   1. Интегрирование скоростей, координат, ориентации по данным ИМУ.
-//   2. Раз в SNS_DECIMATION отсчётов (1 Гц) — коррекция по эталону СНС.
+//   2. Если do_correction = true — коррекция по эталону СНС.
 //   3. Запись результатов в файл.
-inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
-                 NavState &st, data_io::NavLogger &log)
+inline void step(const std::vector<double> &row, const SnsSample &ref,
+                 NavState &st, data_io::NavLogger &log, bool do_correction)
 {
     const double time_s = ins::sampleTime(row);
     double dt = time_s - st.time_prev;
@@ -140,8 +140,8 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
     st.rates_prev = rates;
     st.time_prev = time_s;
 
-    // Коррекция по СНС (раз в SNS_DECIMATION = 200 отсчётов, 1 Гц).
-    if (i % SNS_DECIMATION == 0)
+    // Коррекция по СНС (только когда gps обновился).
+    if (do_correction)
     {
         // Текущее решение БИНС (9 компонент) для вектора инновации.
         const Vector bins = {st.lat, st.lon, st.alt,
