@@ -179,10 +179,12 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         for (int k = 0; k < ins::KF_STATE; k++)
             st.x[k] = 0.0;
 
-        // Запись результата и эталона.
-        log.writeResult(makeResult(time_s, st));
+        // Запись эталона СНС (только при обновлении gps).
         log.writeReference(makeReference(time_s, ref));
     }
+
+    // Запись результата на каждом такте (200 Гц).
+    log.writeResult(makeResult(time_s, st));
 }
 
 } // namespace nav
