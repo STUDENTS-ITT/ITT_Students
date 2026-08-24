@@ -156,25 +156,35 @@ int main(int argc, char **argv)
 
     // Основной цикл счисления с фильтром Калмана.
     // imu.dat читается на каждом такте (200 Гц).
-    // gps.dat читается каждые GPS_DECIMATION отсчётов ИМУ (10 Гц).
+    // gps.dat читается по мере появления новых данных (сопоставление по времени).
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))
         {
             continue;
         }
-        // Чтение СНС каждые 20 отсчётов ИМУ (= 10 Гц).
-        if (i % GPS_DECIMATION == 0)
+
+        const double imu_time = row[0];
+
+        // Подтягиваем gps.dat пока время gps <= время imu.
+        while (!has_ref || last_ref.time <= imu_time)
         {
-            if (sns.next(last_ref))
+            if (!sns.next(last_ref))
             {
-                has_ref = true;
+                break;
+            }
+            has_ref = true;
+            if (last_ref.time > imu_time)
+            {
+                break;
             }
         }
+
         if (!has_ref)
         {
             continue;
         }
+
         ref = last_ref;
         nav::step(i, row, ref, state, log);
         i++;
