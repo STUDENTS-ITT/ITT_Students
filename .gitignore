@@ -15,6 +15,7 @@ data/raw/
 .idea/
 *.swp
 *.swo
+.vs/
 
 # CMake и файлы сборки
 CMakeCache.txt
