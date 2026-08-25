@@ -198,6 +198,10 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
     P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
+
+    // Пол на курс (x6): иначе K_hdg слишком мал и на манёвре ~180°/с курс не успевает.
+    const double P_HDG_FLOOR = (2.0 * DEG_TO_RAD) * (2.0 * DEG_TO_RAD);
+    at(P, 6, 6, KF_STATE) = fmax(at(P, 6, 6, KF_STATE), P_HDG_FLOOR);
 }
 
 // Размерность вектора измерений для коррекции только по тангажу/крену.

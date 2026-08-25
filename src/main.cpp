@@ -87,7 +87,7 @@ int main(int argc, char **argv)
     const auto start_time = std::chrono::high_resolution_clock::now();
 
     // === Этап 1: чтение конфигурации ===
-    double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 332.0;
+    double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 120.0;
 
     if (readStartupNav(startup_file, start_lon, start_lat, start_alt, align_time))
     {
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
         start_lon = first.lon * RAD_TO_DEG;
         start_lat = first.lat * RAD_TO_DEG;
         start_alt = first.alt;
-        align_time = 332.0;
+        align_time = 120.0;
     }
 
     // === Этап 2: автономная выставка (Median + EMA фильтры) ===
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
     get_angle_start(&Yaw_0, &Pitch_0, &Roll_0, &ba_x, &ba_y, &ba_z,
                     imu_file.c_str(),
                     start_lat, start_alt, align_time);
-    std::cout << "Yaw: " << Yaw_0 * 180.0 / PI
+    std::cout << "[Degree] Yaw: " << Yaw_0 * 180.0 / PI
               << ", Pitch: " << Pitch_0 * 180.0 / PI
               << ", Roll: " << Roll_0 * 180.0 / PI << std::endl;
     std::cout << "ba: " << ba_x << ", " << ba_y << ", " << ba_z << std::endl;
@@ -133,8 +133,8 @@ int main(int argc, char **argv)
     // Координаты — из конфига, скорости — нулевые, углы — из выставки.
     nav::NavState state = nav::initialAlignment(start_lat * DEG_TO_RAD, start_lon * DEG_TO_RAD, start_alt,
                                                 Yaw_0, Pitch_0, Roll_0, ba0);
-    std::cout << state.att.heading << "        " << state.att.roll << "        "
-              << state.att.pitch << std::endl;
+    std::cout << "[Rad] Yaw: " << state.att.heading << ", Pitch: " << state.att.pitch << ", Roll: "
+              << state.att.roll << std::endl;
     std::cout << "Output: " << tools_dir.string() << std::endl;
 
     // === Этап 4: открытие потоков данных ===

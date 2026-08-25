@@ -248,6 +248,16 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     // Коррекция по СНС (1 Гц, только когда gps обновился).
     if (do_correction)
     {
+        const double gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] +
+                                     gyro_raw[1] * gyro_raw[1] +
+                                     gyro_raw[2] * gyro_raw[2]);
+        if (gyro_mag > 0.3)
+        {
+            const double P_HDG_MANEUVER = (5.0 * DEG_TO_RAD) * (5.0 * DEG_TO_RAD);
+            at(st.P, 6, 6, ins::KF_STATE) =
+                fmax(at(st.P, 6, 6, ins::KF_STATE), P_HDG_MANEUVER);
+        }
+
         const Vector bins = {st.lat, st.lon, st.alt,
                              st.V[0], st.V[1], st.V[2],
                              st.att.heading, st.att.pitch, st.att.roll};

@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+
 def configure_matlab_style() -> None:
     plt.rcParams.update(
         {

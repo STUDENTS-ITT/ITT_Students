@@ -91,7 +91,7 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 
 
 		int is_first_block = 1; // Флаг первого блока для EMA фильтра
-		double SAMPLE_RATE = 400.0; // Частота измерений IMU (Гц)
+		double SAMPLE_RATE = 200.0; // Частота измерений IMU (Гц)
 		double CUTOFF_FREQ = 1.0; // Частота среза фильтра (Гц)
 		double alpha = calculate_alpha(CUTOFF_FREQ, SAMPLE_RATE);
 
