@@ -30,8 +30,6 @@
 namespace
 {
 
-// Чтение StartupNav.ini (4 строки: lon, lat, alt, time).
-// Возвращает true если файл прочитан.
 bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, double &alt, double &time_s)
 {
     std::ifstream f(path);
@@ -42,19 +40,15 @@ bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, d
 
     std::string line;
 
-    // Строка 1: Долгота (град)
     if (!std::getline(f, line)) return false;
     sscanf(line.c_str(), "%lf", &lon_deg);
 
-    // Строка 2: Широта (град)
     if (!std::getline(f, line)) return false;
     sscanf(line.c_str(), "%lf", &lat_deg);
 
-    // Строка 3: Высота (м)
     if (!std::getline(f, line)) return false;
     sscanf(line.c_str(), "%lf", &alt);
 
-    // Строка 4: Время выставки (сек)
     if (!std::getline(f, line)) return false;
     sscanf(line.c_str(), "%lf", &time_s);
 
@@ -65,28 +59,23 @@ bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, d
 
 int main(int argc, char **argv)
 {
-    // Каталог с входными данными (относительно рабочего каталога).
     const std::string data_dir = "../data/raw";
 
-    // Результаты всегда в tools/ — plot_trajectory.py читает оттуда.
     const std::filesystem::path tools_dir = utils::toolsDir(argv[0]);
     const std::string result_file = (tools_dir / "result.txt").string();
     const std::string reference_file = (tools_dir / "reference.txt").string();
     const std::string err_file = (tools_dir / "errors.txt").string();
 
-    // Имена входных файлов.
     const std::string imu_file = data_dir + "/imu.dat";
     const std::string gps_file = data_dir + "/gps.dat";
     const std::string angle_file = data_dir + "/angle.dat";
     const std::string startup_file = data_dir + "/StartupNav.ini";
 
-    // Проверяем наличие angle.dat — он опциональный.
     const bool has_angle = std::filesystem::exists(angle_file);
     std::cout << "angle.dat: " << (has_angle ? "found" : "not found (angles will be zero)") << std::endl;
 
     const auto start_time = std::chrono::high_resolution_clock::now();
 
-    // === Этап 1: чтение конфигурации ===
     double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0, align_time = 120.0;
 
     if (readStartupNav(startup_file, start_lon, start_lat, start_alt, align_time))
@@ -96,7 +85,6 @@ int main(int argc, char **argv)
     }
     else
     {
-        // Fallback: берём координаты из gps.dat (первый отсчёт), время = 332 с
         std::cout << "StartupNav not found, reading from gps.dat..." << std::endl;
         data_io::SnsReader sns_tmp;
         if (!sns_tmp.open(gps_file, has_angle ? angle_file : ""))
@@ -114,7 +102,6 @@ int main(int argc, char **argv)
         align_time = 120.0;
     }
 
-    // === Этап 2: автономная выставка (Median + EMA фильтры) ===
     double Yaw_0 = 0.0, Pitch_0 = 0.0, Roll_0 = 0.0;
     double ba_x = 0.0, ba_y = 0.0, ba_z = 0.0;
 
@@ -129,15 +116,12 @@ int main(int argc, char **argv)
 
     const Vector ba0 = {ba_x, ba_y, ba_z};
 
-    // === Этап 3: формирование начального состояния ===
-    // Координаты — из конфига, скорости — нулевые, углы — из выставки.
     nav::NavState state = nav::initialAlignment(start_lat * DEG_TO_RAD, start_lon * DEG_TO_RAD, start_alt,
                                                 Yaw_0, Pitch_0, Roll_0, ba0);
     std::cout << "[Rad] Yaw: " << state.att.heading << ", Pitch: " << state.att.pitch << ", Roll: "
               << state.att.roll << std::endl;
     std::cout << "Output: " << tools_dir.string() << std::endl;
 
-    // === Этап 4: открытие потоков данных ===
     data_io::ImuReader imu;
     if (!imu.open(imu_file))
     {
@@ -149,7 +133,6 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // NavLogger — три выходных файла: результат, эталон, ошибки фильтра.
     data_io::NavLogger log;
     if (!log.open(result_file, reference_file, err_file))
     {
@@ -157,15 +140,13 @@ int main(int argc, char **argv)
     }
     log.writeHeader();
 
-    std::vector<double> row;   // строка imu.dat
-    nav::SnsSample ref;        // отсчёт эталона (gps + angle)
-    nav::SnsSample last_ref;   // последний прочитанный отсчёт СНС
-    bool has_ref = false;      // был ли прочитан хотя бы один отсчёт СНС
+    std::vector<double> row;
+    nav::SnsSample ref;
+    nav::SnsSample last_ref;
+    nav::SnsSample hold_ref;
+    bool has_ref = false;
+    bool hold_valid = false;
 
-    // Основной цикл счисления с фильтром Калмана.
-    // imu.dat читается на каждом такте (400 Гц).
-    // gps.dat читается по мере появления новых данных (1 Гц).
-    // Коррекция по СНС выполняется только в момент обновления gps.
     while (imu.next(row))
     {
         if (!ins::isValidRow(row))
@@ -174,11 +155,15 @@ int main(int argc, char **argv)
         }
 
         const double imu_time = row[0];
-        const double prev_gps_time = has_ref ? last_ref.time : -1.0;
+        const double prev_gps_time = hold_valid ? hold_ref.time : -1.0;
 
-        // Подтягиваем gps.dat пока время gps <= время imu.
         while (!has_ref || last_ref.time <= imu_time)
         {
+            if (has_ref && last_ref.time <= imu_time)
+            {
+                hold_ref = last_ref;
+                hold_valid = true;
+            }
             if (!sns.next(last_ref))
             {
                 break;
@@ -190,15 +175,14 @@ int main(int argc, char **argv)
             }
         }
 
-        if (!has_ref)
+        if (!hold_valid)
         {
             continue;
         }
 
-        // Коррекция только если gps обновился (время изменилось).
-        const bool do_correction = (last_ref.time != prev_gps_time);
+        const bool do_correction = (hold_ref.time != prev_gps_time);
 
-        ref = last_ref;
+        ref = hold_ref;
         nav::step(row, ref, state, log, do_correction);
     }
 

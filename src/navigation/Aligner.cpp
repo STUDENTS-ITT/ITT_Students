@@ -150,9 +150,9 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 												double roll_smooth = atan2(-Az_mean, Ay_mean);
 
 												// Проекции угловой скорости Земли для расчёта курса (Yaw)
-												double We_sm = Wx_mean * cos(pitch_smooth) + Wy_mean * sin(pitch_smooth) * sin(roll_smooth) + Wz_mean *  sin(pitch_smooth) * cos(roll_smooth);
-												double Wn_sm = Wy_mean * cos(roll_smooth) - Wz_mean * sin(roll_smooth);
-												double yaw_smooth = atan2(-We_sm , Wn_sm);
+												double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
+												double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
+												double yaw_smooth = atan2(-We_sm, Wn_sm);
 
 												// Сырые углы
 												double raw_ax_norm = Ax_arr[global_index] / g;
@@ -162,9 +162,9 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 												double raw_pitch = asin(raw_ax_norm);
 												double raw_roll = atan2(-Az_arr[global_index], Ay_arr[global_index]);
 
-												double raw_We = Wx_arr[global_index] * cos(pitch_smooth) + Wy_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth) + Wz_arr[global_index] *  sin(pitch_smooth) * cos(roll_smooth);
-												double raw_Wn = Wy_arr[global_index] * cos(roll_smooth) - Wz_arr[global_index] * sin(roll_smooth);
-												double raw_yaw = atan2(-raw_We , raw_Wn);
+												double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
+												double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
+												double raw_yaw = atan2(-raw_We, raw_Wn);
 
 												// Рекурсивное обновление среднего углов
 												final_angles_count++;
@@ -252,9 +252,9 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double pitch_smooth = asin(ax_norm_sm);
 										double roll_smooth = atan2(-Az_mean, Ay_mean);
 
-										double We_sm = Wx_mean * cos(pitch_smooth) + Wy_mean * sin(pitch_smooth) * sin(roll_smooth) + Wz_mean *  sin(pitch_smooth) * cos(roll_smooth);
-										double Wn_sm = Wy_mean * cos(roll_smooth) - Wz_mean * sin(roll_smooth);
-										double yaw_smooth = atan2(-We_sm , Wn_sm);
+										double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
+										double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
+										double yaw_smooth = atan2(-We_sm, Wn_sm);
 
 										double raw_ax_norm = Ax_arr[global_index] / g;
 										if (raw_ax_norm > 1.0) raw_ax_norm = 1.0;
@@ -263,9 +263,9 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double raw_pitch = asin(raw_ax_norm);
 										double raw_roll = atan2(-Az_arr[global_index], Ay_arr[global_index]);
 
-										double raw_We = Wx_arr[global_index] * cos(pitch_smooth) + Wy_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth) + Wz_arr[global_index] *  sin(pitch_smooth) * cos(roll_smooth);
-										double raw_Wn = Wy_arr[global_index] * cos(roll_smooth) - Wz_arr[global_index] * sin(roll_smooth);
-										double raw_yaw = atan2(-raw_We , raw_Wn);
+										double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
+										double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
+										double raw_yaw = atan2(-raw_We, raw_Wn);
 
 										final_angles_count++;
 										update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);

@@ -108,8 +108,9 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
     at(Fj, 4, 2, KF_STATE) = T * 2.0 * g / R_EARTH;
 
     // δVė ← ошибки ориентации (через крестовое произведение f_nav × n̂)
-    const Vector n_psi = {0.0, 1.0, 0.0};
-    const Vector n_theta = {sin(att.heading), 0.0, cos(att.heading)};
+    // Курс растёт по часовой стрелке, поэтому его ось поворота направлена вниз.
+    const Vector n_psi = {0.0, -1.0, 0.0};
+    const Vector n_theta = {-sin(att.heading), 0.0, cos(att.heading)};
     const Vector n_gamma = {at(C, 0, 0, 3), at(C, 1, 0, 3), at(C, 2, 0, 3)};
 
     const Vector d_psi = vector_product(n_psi, f_nav);
@@ -136,7 +137,7 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
     const double cth = cos(att.pitch);
     const double tth = tan(att.pitch);
     const double e_rate[3][3] = {
-        {0.0, cg / cth, -sg / cth},
+        {0.0, -cg / cth, sg / cth},
         {0.0, sg, cg},
         {1.0, -tth * cg, tth * sg}};
     for (int r = 0; r < 3; r++)
@@ -198,10 +199,6 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
     P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
-
-    // Пол на курс (x6): иначе K_hdg слишком мал и на манёвре ~180°/с курс не успевает.
-    const double P_HDG_FLOOR = (2.0 * DEG_TO_RAD) * (2.0 * DEG_TO_RAD);
-    at(P, 6, 6, KF_STATE) = fmax(at(P, 6, 6, KF_STATE), P_HDG_FLOOR);
 }
 
 // Размерность вектора измерений для коррекции только по тангажу/крену.

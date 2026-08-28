@@ -18,6 +18,7 @@
 #include "../utils/constants.h"
 #include "../utils/types.h"
 #include "gps_processor.h"
+#include "maneuver_tilt.h"
 #include "position_calc.h"
 #include "aligner.hpp"
 
@@ -53,6 +54,12 @@ struct NavState
 
     // Статическое смещение гироскопа (для hdg_true).
     Vector bg_static = {0.0, 0.0, 0.0};
+
+    // Время последнего |ω| > gyro_off (пауза перед акселем).
+    double tilt_maneuver_time = -1e9;
+
+    // Оценка дрейфа тангажа/крена для сведения к горизонту.
+    TiltTrimState tilt_trim;
 };
 
 // Формирование строки результата: БИНС с вычитанием ошибок Калмана.
@@ -212,12 +219,24 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     const Vector f_body = ins::accel(row, st.ba);
     const Vector V_dot_body = navToBody(C, V_dot);
     const Vector gyro_raw = ins::gyro(row, st.bg);
-    const AccelAttitude acc_att = evalAccelAttitude(f_body, V_dot_body, st.lat, st.alt, gyro_raw);
+    const double gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] +
+                                 gyro_raw[1] * gyro_raw[1] +
+                                 gyro_raw[2] * gyro_raw[2]);
+
+    constexpr TiltManeuverPolicy TILT_POL;
+
+    if (gyro_mag > TILT_POL.gyro_off_rad_s || isBrakingManeuver(V_dot_body, TILT_POL))
+        st.tilt_maneuver_time = time_s;
+
+    const AccelAttitude acc_att =
+        evalAccelAttitude(f_body, V_dot_body, st.lat, st.alt, gyro_raw);
 
     // Интегрирование углов ориентации (гиро).
     const Vector w_nav = navAngularRate(st.lat, V, R_EARTH + st.alt);
     const Vector w_rel = ins::relativeRate(gyro_raw, w_nav, C);
-    const ins::AttitudeRates rates = ins::eulerRates(w_rel, st.att.pitch, st.att.roll);
+    ins::AttitudeRates rates = ins::eulerRates(w_rel, st.att.pitch, st.att.roll);
+    applyTiltRateBias(rates, st.tilt_trim);
+    limitTiltDivergence(rates, st.att, f_body, gyro_mag, V_dot_body, TILT_POL);
     const ins::Attitude att = ins::integrate(st.att, rates, st.rates_prev, dt);
 
     // Обновление состояния.
@@ -235,29 +254,23 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     st.rates_prev = rates;
     st.time_prev = time_s;
 
-    // Коррекция pitch/roll по акселю на каждом такте ИМУ (400 Гц).
-    if (acc_att.ok)
+    trimManeuverTilt(st.att, st.tilt_trim, f_body, gyro_mag, V_dot_body, dt, TILT_POL);
+
+    if (shouldApplyAccelTilt(time_s, st.tilt_maneuver_time, gyro_mag,
+                             acc_att.ok, acc_att.pitch, acc_att.roll,
+                             V_dot_body, st.att, rates, TILT_POL))
     {
-        ins::correctTilt(st.att.pitch, st.att.roll,
-                         acc_att.pitch, acc_att.roll,
-                         acc_att.sig_pitch, acc_att.sig_roll,
-                         st.x, st.P);
+        applyAccelTiltCorrection(st.att, acc_att.pitch, acc_att.roll,
+                                 acc_att.sig_pitch, acc_att.sig_roll,
+                                 st.x, st.P);
         applyTiltKalmanCorrections(st);
     }
+    else
+        clearTiltKalmanErrors(st.x);
 
     // Коррекция по СНС (1 Гц, только когда gps обновился).
     if (do_correction)
     {
-        const double gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] +
-                                     gyro_raw[1] * gyro_raw[1] +
-                                     gyro_raw[2] * gyro_raw[2]);
-        if (gyro_mag > 0.3)
-        {
-            const double P_HDG_MANEUVER = (5.0 * DEG_TO_RAD) * (5.0 * DEG_TO_RAD);
-            at(st.P, 6, 6, ins::KF_STATE) =
-                fmax(at(st.P, 6, 6, ins::KF_STATE), P_HDG_MANEUVER);
-        }
-
         const Vector bins = {st.lat, st.lon, st.alt,
                              st.V[0], st.V[1], st.V[2],
                              st.att.heading, st.att.pitch, st.att.roll};
