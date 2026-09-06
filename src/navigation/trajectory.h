@@ -191,7 +191,8 @@ inline void applyKalmanCorrections(NavState &st)
 //   3. Если do_correction — коррекция по СНС (1 Гц): координаты, скорости, курс.
 //   4. Запись результатов в файл.
 inline void step(const std::vector<double> &row, const SnsSample &ref,
-                 NavState &st, data_io::NavLogger &log, bool do_correction)
+                 NavState &st, data_io::NavLogger &log, bool do_correction,
+                 bool has_heading_ref)
 {
     const double time_s = ins::sampleTime(row);
     double dt = time_s - st.time_prev;
@@ -276,9 +277,13 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
                              st.att.heading, st.att.pitch, st.att.roll};
 
         // Координаты, скорости, курс — из СНС; pitch/roll уже на ИМУ-частоте.
+        // Курс корректируется только при наличии angle.dat (эталона курса).
+        // Иначе ref.heading == 0 → не даём фильтру тянуть истинный курс к нулю,
+        // а замер курса считаем отсутствующим (инновация = 0).
         const Vector sns = {ref.lat, ref.lon, ref.alt,
                             ref.vn, ref.vh, ref.ve,
-                            ref.heading, st.att.pitch, st.att.roll};
+                            has_heading_ref ? ref.heading : st.att.heading,
+                            st.att.pitch, st.att.roll};
 
         const double SIG_HDG = 1.0 * DEG_TO_RAD;
         const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;

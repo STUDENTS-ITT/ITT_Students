@@ -183,7 +183,7 @@ int main(int argc, char **argv)
         const bool do_correction = (hold_ref.time != prev_gps_time);
 
         ref = hold_ref;
-        nav::step(row, ref, state, log, do_correction);
+        nav::step(row, ref, state, log, do_correction, has_angle);
     }
 
     imu.close();

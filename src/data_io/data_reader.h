@@ -9,7 +9,8 @@
 //   Формат gps.dat:  time_s  timestamp_ns  latitude  longitude  altitude  vx  vy  vz
 //   Формат angle.dat: time_s  timestamp_ns  roll  pitch  yaw
 //   Координаты gps.dat переводятся из градусов в радианы.
-//   Углы angle.dat уже в радианах, читаются как есть, стыкуются с gps по времени.
+//   Углы angle.dat задаются в градусах и переводятся в радианы (внутренняя СК — рад),
+//   стыкуются с gps по времени.
 //   Если angle.dat отсутствует — углы ориентации заполняются нулями.
 
 #pragma once
