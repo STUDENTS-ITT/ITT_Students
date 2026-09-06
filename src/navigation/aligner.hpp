@@ -150,8 +150,10 @@ inline void update_recursive_mean(double& current_mean, double new_val, long n)
 		}
 }
 
-// Объявление главной функции начальной выставки инерциальной навигационной системы
-void get_angle_start(double* Yaw, double* Pitch, double* Roll, const char* IMU_path,
-                     double lat_deg, double h, double iter);
+// Объявление главной функции начальной выставки инерциальной навигационной системы.
+// ba_x/ba_y/ba_z — смещение акселерометра (можно nullptr, если не нужно).
+void get_angle_start(double *Yaw, double *Pitch, double *Roll,
+                     double *ba_x, double *ba_y, double *ba_z,
+                     const char *IMU_path, double lat_deg, double h, double iter);
 
 #endif
