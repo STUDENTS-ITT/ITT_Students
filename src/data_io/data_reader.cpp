@@ -138,10 +138,10 @@ bool SnsReader::readNextAngle()
         }
 
         ang_t_curr_ = std::stod(ang[ANG_COL_TIME]);
-        // Углы angle.dat заданы в градусах → переводим в радианы (внутренняя СК — рад).
-        ang_roll_curr_ = std::stod(ang[ANG_COL_ROLL]) * DEG_TO_RAD;
-        ang_pitch_curr_ = std::stod(ang[ANG_COL_PITCH]) * DEG_TO_RAD;
-        ang_yaw_curr_ = std::stod(ang[ANG_COL_YAW]) * DEG_TO_RAD;
+        // Углы angle.dat уже в радианах (внутренняя СК — рад).
+        ang_roll_curr_ = std::stod(ang[ANG_COL_ROLL]);
+        ang_pitch_curr_ = std::stod(ang[ANG_COL_PITCH]);
+        ang_yaw_curr_ = std::stod(ang[ANG_COL_YAW]);
         have_ang_curr_ = true;
         return true;
     }
@@ -149,7 +149,7 @@ bool SnsReader::readNextAngle()
 }
 
 // Чтение следующей строки gps.dat (+ angle.dat если есть), заполнение SnsSample.
-// Координаты gps.dat — градусы→рад; углы angle.dat — градусы→рад, стыковка по времени.
+// Координаты gps.dat — градусы→рад; углы angle.dat — рад, стыковка по времени.
 bool SnsReader::next(nav::SnsSample &out)
 {
     while (std::getline(gps_, gps_line_))
