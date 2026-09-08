@@ -1,0 +1,19 @@
+{
+  "chosen_algorithm": "vins",
+  "reason": "VINS (надир + IMU, основной канал)",
+  "vins": {
+    "num_poses": 1603,
+    "coverage_pct": 43.83374350560569,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "1603 поз, покрытие 43.8%"
+  },
+  "dso": {
+    "num_poses": 781,
+    "coverage_pct": 21.35630298058518,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "781 поз, покрытие 21.4%"
+  },
+  "scene_type": "nadyr"
+}

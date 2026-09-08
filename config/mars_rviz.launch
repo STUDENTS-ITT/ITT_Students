@@ -1,0 +1,11 @@
+<launch>
+    <!-- RViz для MARS: tracked image, loop closure, RTK эталон.
+         Конфиг лежит в fire-dron/config/mars_rviz.rviz (не в catkin).
+         Запускайте через scripts/run_vins_mars_live.sh или:
+           export VNAV_ROOT=/path/to/fire-dron
+           rosrun rviz rviz -d $VNAV_ROOT/config/mars_rviz.rviz
+    -->
+    <arg name="rviz_config" default="$(env VNAV_ROOT)/config/mars_rviz.rviz" />
+    <node name="mars_rviz" pkg="rviz" type="rviz" output="screen"
+          args="-d $(arg rviz_config)" />
+</launch>

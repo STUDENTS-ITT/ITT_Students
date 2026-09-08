@@ -1,0 +1,25 @@
+{
+  "chosen_algorithm": "dso",
+  "reason": "DSO (нет IMU/VINS, единственный канал; не для навигации надир-MARS)",
+  "health": {
+    "status": "low_confidence",
+    "vins_reboots": 0,
+    "dso_lost": false,
+    "recommendation": "Нет IMU/VINS — DSO единственный канал; ограниченная точность"
+  },
+  "vins": {
+    "num_poses": 0,
+    "coverage_pct": 0.0,
+    "is_initialized": false,
+    "is_lost": true,
+    "note": "Файл не найден"
+  },
+  "dso": {
+    "num_poses": 36,
+    "coverage_pct": 7.017543859649122,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "36 поз, покрытие 7.0%"
+  },
+  "scene_type": "nadyr"
+}

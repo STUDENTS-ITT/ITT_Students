@@ -1,0 +1,25 @@
+{
+  "chosen_algorithm": "vins",
+  "reason": "VINS (надир + IMU, основной канал); health=low_confidence, reboots=12",
+  "health": {
+    "status": "low_confidence",
+    "vins_reboots": 12,
+    "dso_lost": false,
+    "recommendation": "Много reboot VINS (12) — повышенная σ в vo_to_gps_dat"
+  },
+  "vins": {
+    "num_poses": 2733,
+    "coverage_pct": 74.73338802296965,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "2733 поз, покрытие 74.7%"
+  },
+  "dso": {
+    "num_poses": 781,
+    "coverage_pct": 21.35630298058518,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "781 поз, покрытие 21.4%"
+  },
+  "scene_type": "nadyr"
+}

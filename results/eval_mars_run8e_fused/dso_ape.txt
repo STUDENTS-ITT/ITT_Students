@@ -1,0 +1,1 @@
+[ERROR] found no matching timestamps between /home/vasiliy/Downloads/cursor/Projects/fire-dron/data/mars_hkairport03_gt.tum and dso.tum with max. time diff 0.05 (s) and time offset 0.0 (s)

@@ -1,0 +1,16 @@
+# Python-зависимости инструментов (Ubuntu, python3).
+#   python3 -m pip install --user -r requirements.txt
+#
+# rosbag, rospy и sensor_msgs ставятся вместе с ROS Noetic и через pip
+# не устанавливаются. Перед запуском mars_to_bag.py выполните:
+#   source /opt/ros/noetic/setup.bash
+
+numpy>=1.17
+scipy>=1.4
+matplotlib>=3.1
+pandas>=1.0
+opencv-python-headless>=4.2
+evo>=1.20
+tqdm>=4.40
+reportlab>=3.5
+pypdf>=4.0

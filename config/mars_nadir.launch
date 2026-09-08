@@ -1,0 +1,42 @@
+<launch>
+    <!--
+      VINS-Mono для MARS-LVIG, надирная камера.
+
+      Скопируйте mars_nadir.yaml в
+        ~/catkin_ws/src/VINS-Mono/config/mars/mars_nadir.yaml
+      а этот файл в
+        ~/catkin_ws/src/VINS-Mono/vins_estimator/launch/mars_nadir.launch
+
+      Не забудьте заменить USER в путях внутри mars_nadir.yaml.
+    -->
+    <arg name="config_path"
+         default="$(find feature_tracker)/../config/mars/mars_nadir.yaml" />
+    <arg name="vins_path"
+         default="$(find feature_tracker)/../config/../" />
+
+    <!-- Замыкание петель. Для чистого замера времени ОДОМЕТРИИ ставьте false:
+         граф поз работает в отдельном потоке и смазывает картину нагрузки. -->
+    <arg name="use_pose_graph" default="true" />
+
+    <node name="feature_tracker" pkg="feature_tracker" type="feature_tracker"
+          output="log">
+        <param name="config_file" type="string" value="$(arg config_path)" />
+        <param name="vins_folder" type="string" value="$(arg vins_path)" />
+    </node>
+
+    <node name="vins_estimator" pkg="vins_estimator" type="vins_estimator"
+          output="screen">
+        <param name="config_file" type="string" value="$(arg config_path)" />
+        <param name="vins_folder" type="string" value="$(arg vins_path)" />
+    </node>
+
+    <group if="$(arg use_pose_graph)">
+        <node name="pose_graph" pkg="pose_graph" type="pose_graph" output="screen">
+            <param name="config_file" type="string" value="$(arg config_path)" />
+            <param name="visualization_shift_x" type="int" value="0" />
+            <param name="visualization_shift_y" type="int" value="0" />
+            <param name="skip_cnt" type="int" value="0" />
+            <param name="skip_dis" type="double" value="0" />
+        </node>
+    </group>
+</launch>
