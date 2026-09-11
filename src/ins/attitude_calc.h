@@ -18,6 +18,13 @@
 
 namespace ins
 {
+namespace
+{
+inline long double v_integral_ld(long double v_now_dot, long double v0, long double v_pred_dot, long double dt)
+{
+    return v0 + ((v_now_dot + v_pred_dot) / 2.0L) * dt;
+}
+} // namespace
 
 // Углы ориентации (курс, тангаж, крен) в радианах.
 struct Attitude
@@ -52,7 +59,8 @@ inline AttitudeRates eulerRates(const Vector &w_rel, double pitch, double roll)
 
     AttitudeRates rates;
     double cos_pitch = fmax(fabs(cos(pitch)), 1e-10);
-    rates.heading_dot = (wy * cos(roll) - wz * sin(roll)) / cos_pitch;
+    // Курс растёт по часовой стрелке, а ω_y положительна против часовой: знак минус.
+    rates.heading_dot = -(wy * cos(roll) - wz * sin(roll)) / cos_pitch;
     rates.pitch_dot = wy * sin(roll) + wz * cos(roll);
     rates.roll_dot = wx - tan(pitch) * (wy * cos(roll) - wz * sin(roll));
     return rates;
@@ -63,10 +71,23 @@ inline AttitudeRates eulerRates(const Vector &w_rel, double pitch, double roll)
 inline Attitude integrate(const Attitude &prev, const AttitudeRates &now,
                           const AttitudeRates &prev_rates, double dt)
 {
+    const long double dt_ld = static_cast<long double>(dt);
     Attitude att;
-    att.heading = normalize_angle(v_integral(now.heading_dot, prev.heading, prev_rates.heading_dot, dt));
-    att.pitch = normalize_angle(v_integral(now.pitch_dot, prev.pitch, prev_rates.pitch_dot, dt));
-    att.roll = normalize_angle(v_integral(now.roll_dot, prev.roll, prev_rates.roll_dot, dt));
+    att.heading = normalize_angle(static_cast<double>(v_integral_ld(
+        static_cast<long double>(now.heading_dot),
+        static_cast<long double>(prev.heading),
+        static_cast<long double>(prev_rates.heading_dot),
+        dt_ld)));
+    att.pitch = normalize_angle(static_cast<double>(v_integral_ld(
+        static_cast<long double>(now.pitch_dot),
+        static_cast<long double>(prev.pitch),
+        static_cast<long double>(prev_rates.pitch_dot),
+        dt_ld)));
+    att.roll = normalize_angle(static_cast<double>(v_integral_ld(
+        static_cast<long double>(now.roll_dot),
+        static_cast<long double>(prev.roll),
+        static_cast<long double>(prev_rates.roll_dot),
+        dt_ld)));
     return att;
 }
 

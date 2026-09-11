@@ -41,4 +41,25 @@ inline std::filesystem::path dataDir(const char *argv0, const std::string &probe
     return {};
 }
 
+// Каталог tools/ для result.txt и reference.txt (запись и чтение графиков).
+inline std::filesystem::path toolsDir(const char *argv0)
+{
+    std::error_code ec;
+    const std::filesystem::path dirs[] = {
+        std::filesystem::current_path() / "tools",
+        exeDir(argv0) / ".." / "tools",
+        exeDir(argv0) / "tools",
+    };
+    for (const auto &d : dirs)
+    {
+        if (std::filesystem::exists(d, ec))
+        {
+            return std::filesystem::weakly_canonical(d, ec);
+        }
+    }
+    auto fallback = std::filesystem::current_path() / "tools";
+    std::filesystem::create_directories(fallback, ec);
+    return fallback;
+}
+
 } // namespace utils

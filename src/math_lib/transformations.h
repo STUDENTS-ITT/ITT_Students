@@ -18,13 +18,14 @@
 // Приведение угла к диапазону [-π, π].
 inline double normalize_angle(double a)
 {
+    a = std::fmod(a, 2.0 * PI);
     while (a > PI)
     {
-        a -= 2 * PI;
+        a -= 2.0 * PI;
     }
-    while (a < -PI)
+    while (a <= -PI)
     {
-        a += 2 * PI;
+        a += 2.0 * PI;
     }
     return a;
 }
@@ -41,14 +42,17 @@ inline double deg_to_rad(double a)
 
 // Матрица перехода от СК тела к навигационной СК (последовательность Z-Y-X).
 // heading (ψ) — поворот вокруг оси Z, pitch (θ) — вокруг Y, roll (φ) — вокруг X.
+//
+// Навигационная СК — (Север, Вверх, Восток), курс отсчитывается от Севера по
+// часовой стрелке (к Востоку): при ψ = 90° продольная ось тела смотрит на восток.
 inline Matrix bodyToNavMatrix(double heading, double pitch, double roll)
 {
     Matrix C(3 * 3, 0);
     const double c_vals[3][3] =
         {
-            {cos(pitch) * cos(heading), -cos(roll) * cos(heading) * sin(pitch) + sin(roll) * sin(heading), sin(roll) * cos(heading) * sin(pitch) + cos(roll) * sin(heading)},
+            {cos(pitch) * cos(heading), -cos(roll) * cos(heading) * sin(pitch) - sin(roll) * sin(heading), sin(roll) * cos(heading) * sin(pitch) - cos(roll) * sin(heading)},
             {sin(pitch), cos(roll) * cos(pitch), -sin(roll) * cos(pitch)},
-            {-cos(pitch) * sin(heading), cos(roll) * sin(heading) * sin(pitch) + sin(roll) * cos(heading), -sin(roll) * sin(heading) * sin(pitch) + cos(roll) * cos(heading)}};
+            {cos(pitch) * sin(heading), -cos(roll) * sin(heading) * sin(pitch) + sin(roll) * cos(heading), sin(roll) * sin(heading) * sin(pitch) + cos(roll) * cos(heading)}};
 
     for (int r = 0; r < 3; r++)
     {

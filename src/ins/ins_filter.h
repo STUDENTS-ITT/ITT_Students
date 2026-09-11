@@ -59,19 +59,19 @@ inline Matrix Qj_matrix(double T)
 }
 
 // Матрица шума измерений R (диагональная).
-// Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с, углы ~1°.
-inline Matrix Rj_matrix()
+// Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с.
+// Углы: курс — из СНС (sig_hdg), крен/тангаж — из акселя (sig_pitch, sig_roll).
+inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
 {
     const double sig_pos = 5.0 / R_EARTH;   // позиция в радианах
     const double sig_h = 5.0;               // высота, м
     const double sig_v = 0.1;               // скорость, м/с
-    const double sig_ang = 1.0 * DEG_TO_RAD; // угол, рад
 
     Matrix Rj(KF_MEAS * KF_MEAS, 0);
     const double rdiag[KF_MEAS] = {
         sig_pos * sig_pos, sig_pos * sig_pos, sig_h * sig_h,
         sig_v * sig_v, sig_v * sig_v, sig_v * sig_v,
-        sig_ang * sig_ang, sig_ang * sig_ang, sig_ang * sig_ang};
+        sig_hdg * sig_hdg, sig_pitch * sig_pitch, sig_roll * sig_roll};
     for (int i = 0; i < KF_MEAS; i++)
         at(Rj, i, i, KF_MEAS) = rdiag[i];
     return Rj;
@@ -107,9 +107,22 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
     // Гравитационный градиент: δVė ← δVn (влияние ошибки высоты на вертикальную скорость)
     at(Fj, 4, 2, KF_STATE) = T * 2.0 * g / R_EARTH;
 
+    // Кориолисовы связи ошибок скоростей (2·Ω×δV).
+    // Из уравнения V̇ = f_н − a_вред, где a_вред содержит Кориолис (2·Ω×V):
+    //   δV̇n ← δVe: −2Ω·sin(φ)
+    //   δV̇h ← δVe: +2Ω·cos(φ)
+    //   δV̇e ← δVn: +2Ω·sin(φ)
+    // Мало для низкоскоростного аппарата, но учитывается для полноты модели
+    // (соответствует блочной схеме «δVė = 2ω_Zem·sin(φ)·δVn»).
+    const double two_w = 2.0 * U_EARTH;
+    at(Fj, 3, 5, KF_STATE) += T * (-two_w * sin(lat));
+    at(Fj, 4, 5, KF_STATE) += T * (two_w * cos(lat));
+    at(Fj, 5, 3, KF_STATE) += T * (two_w * sin(lat));
+
     // δVė ← ошибки ориентации (через крестовое произведение f_nav × n̂)
-    const Vector n_psi = {0.0, 1.0, 0.0};
-    const Vector n_theta = {sin(att.heading), 0.0, cos(att.heading)};
+    // Курс растёт по часовой стрелке, поэтому его ось поворота направлена вниз.
+    const Vector n_psi = {0.0, -1.0, 0.0};
+    const Vector n_theta = {-sin(att.heading), 0.0, cos(att.heading)};
     const Vector n_gamma = {at(C, 0, 0, 3), at(C, 1, 0, 3), at(C, 2, 0, 3)};
 
     const Vector d_psi = vector_product(n_psi, f_nav);
@@ -136,7 +149,7 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
     const double cth = cos(att.pitch);
     const double tth = tan(att.pitch);
     const double e_rate[3][3] = {
-        {0.0, cg / cth, -sg / cth},
+        {0.0, -cg / cth, sg / cth},
         {0.0, sg, cg},
         {1.0, -tth * cg, tth * sg}};
     for (int r = 0; r < 3; r++)
@@ -165,7 +178,8 @@ inline void predict(double T, double lat, double alt, const Matrix &C,
 //   K = P·H^T·(H·P·H^T + R)^{-1}
 //   x = x + K·(z − H·x)
 //   P = (I − K·H)·P
-inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
+inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
+                    double sig_hdg, double sig_pitch, double sig_roll)
 {
     // Инновация: разность БИНС и СНС.
     Vector zj = vector_diff(bins, sns);
@@ -181,7 +195,7 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
     const Matrix P_HTj = multiply_matrix(P, HTj, KF_STATE, KF_MEAS);
     const Matrix S = matrix_sum(
         multiply_matrix(multiply_matrix(Hj, P, KF_STATE, KF_STATE), HTj, KF_STATE, KF_MEAS),
-        Rj_matrix(), KF_MEAS);
+        Rj_matrix(sig_hdg, sig_pitch, sig_roll), KF_MEAS);
 
     // Коэффициент усиления Калмана: K = P·H^T·S^{-1}.
     const Matrix Kj = multiply_matrix(P_HTj, return_matrix(S, KF_MEAS), KF_MEAS, KF_MEAS);
@@ -196,6 +210,57 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
     // Коррекция ковариации: P = (I − K·H)·P.
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
+    P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
+}
+
+// Размерность вектора измерений для коррекции только по тангажу/крену.
+constexpr int KF_TILT_MEAS = 2;
+
+inline Matrix R_tilt_matrix(double sig_pitch, double sig_roll)
+{
+    Matrix R(KF_TILT_MEAS * KF_TILT_MEAS, 0);
+    at(R, 0, 0, KF_TILT_MEAS) = sig_pitch * sig_pitch;
+    at(R, 1, 1, KF_TILT_MEAS) = sig_roll * sig_roll;
+    return R;
+}
+
+inline Matrix H_tilt_matrix()
+{
+    Matrix H(KF_TILT_MEAS * KF_STATE, 0);
+    at(H, 0, 7, KF_STATE) = 1.0;
+    at(H, 1, 8, KF_STATE) = 1.0;
+    return H;
+}
+
+// Коррекция только pitch/roll (на каждом такте ИМУ, 400 Гц).
+inline void correctTilt(double pitch_bins, double roll_bins,
+                        double pitch_meas, double roll_meas,
+                        double sig_pitch, double sig_roll,
+                        Vector &x, Matrix &P)
+{
+    Vector z = {normalize_angle(pitch_bins - pitch_meas),
+                normalize_angle(roll_bins - roll_meas)};
+
+    const Matrix H = H_tilt_matrix();
+    const Matrix HT = transpose_m(H, KF_STATE);
+
+    const Matrix P_HT = multiply_matrix(P, HT, KF_STATE, KF_TILT_MEAS);
+    const Matrix S = matrix_sum(
+        multiply_matrix(multiply_matrix(H, P, KF_STATE, KF_STATE), HT, KF_STATE, KF_TILT_MEAS),
+        R_tilt_matrix(sig_pitch, sig_roll), KF_TILT_MEAS);
+
+    const Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_TILT_MEAS), KF_TILT_MEAS, KF_TILT_MEAS);
+
+    Vector innov = vector_diff(z, multiply_m(H, x, KF_STATE));
+    innov[0] = normalize_angle(innov[0]);
+    innov[1] = normalize_angle(innov[1]);
+
+    x = vector_sum(x, multiply_m(K, innov, KF_TILT_MEAS));
+
+    const Matrix E_KH = matrix_diff(
+        E_matrix(KF_STATE),
+        multiply_matrix(K, H, KF_TILT_MEAS, KF_STATE),
+        KF_STATE);
     P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
 }
 
