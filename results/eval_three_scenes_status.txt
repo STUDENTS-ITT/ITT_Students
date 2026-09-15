@@ -1,0 +1,38 @@
+eval_three_scenes — 2026-09-11
+
+Patch / build
+  python3 tools/patch_reboot_anchor.py --vins ~/catkin_ws/src/VINS-Mono  → OK
+  catkin_make -j$(nproc) → [100%] Built target vins_estimator
+  yaml+launch скопированы в ~/catkin_ws/src/VINS-Mono (sed /home/USER → $HOME)
+
+Download HKisland01 / AMvalley01
+  FAILED. Google Drive file IDs 404 (gdown: cannot retrieve public link).
+  Folder https://drive.google.com/drive/folders/1aG21le4QZl9LhSLE1O0vuVDQ8YgAwdas → HTTP 200,
+  но file/d/<id> и uc?id= для обеих последовательностей → HTTP 404.
+  Нет partial-файлов. Подробнее: results/download_mars_status.txt
+  Конвертация official_bag_to_vins.py не запускалась (нет raw bag).
+
+Python checks
+  fuse_vins_baro stitch (синтетический прыжок в origin) → непрерывный путь, jumps=[21]
+  dispatcher dummy: nadyr/field/water/forest → vins; city → dso; mixed → vins
+
+Field (HKairport03, DJI IMU fallback), окно 90 с, start=50, rate=1.0
+  bag: data/mars/mars_hkairport03.bag  (есть)
+  VINS: 656 поз  results/vins_mars_scene_field.csv
+  system reboot ×4, reboot anchored to last_P ×4  (патч сработал)
+  detect_jumps в fused TUM: 0 (скачков к origin нет)
+  dispatcher: vins, health=ok, vins_reboots=0 (нет прыжка в CSV)
+  raw VINS  ATE RMSE: 87.9 m  (n=327, SE3 Umeyama, только оценка)
+  baro fuse ATE RMSE: 87.5 m  (Z от баро, без RTK-assist), path=521.8 m
+  RPE trans 10 m RMSE: 22.5 m
+  артефакты: results/eval_mars_scene_field/vins_baro.tum (+ vins_fused.tum копия)
+
+Water (HKisland01 / Livox)
+  SKIPPED — нет data/mars/mars_hkisland01.bag
+
+Forest (AMvalley01 / Livox valley)
+  SKIPPED — нет data/mars/mars_amvalley01.bag
+
+Блокер: недоступны официальные rosbag острова/леса с указанных Google Drive ID.
+Повтор: ./scripts/download_mars_seq.sh HKisland01 AMvalley01
+        затем python3 tools/official_bag_to_vins.py … и ./scripts/eval_three_scenes.sh

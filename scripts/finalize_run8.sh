@@ -25,20 +25,27 @@ echo "=== 1. Оценка VINS ($VINS_TAG) ==="
 cp -f "$VNAV_ROOT/results/vins_mars_${VINS_TAG}.csv" "$VNAV_ROOT/results/vins_mars_${OUT_TAG}.csv"
 ./scripts/evaluate_mars.sh "$OUT_TAG"
 
-echo "=== 2. RTK fusion ==="
-python3 "$VNAV_ROOT/tools/fuse_vins_rtk.py" \
-    --vins "$EVAL/vins.tum" --gt "$GT" \
-    --out "$EVAL/vins_fused.tum" --copy-gt-quat
+echo "=== 2. Сшивка reboot + Z от баро (без RTK) ==="
+BARO="${MARS_BARO:-$VNAV_ROOT/data/mars/aux/dji_osdk_ros_height_above_takeoff.csv}"
+BARO_ARGS=()
+[[ -f "$BARO" ]] && BARO_ARGS+=(--baro "$BARO")
+python3 "$VNAV_ROOT/tools/fuse_vins_baro.py" \
+    --vins "$EVAL/vins.tum" \
+    --out "$EVAL/vins_baro.tum" \
+    --gt "$GT" \
+    "${BARO_ARGS[@]}"
+cp -f "$EVAL/vins_baro.tum" "$EVAL/vins_fused.tum"
 
 cd "$EVAL"
-evo_ape tum "$GT" vins_fused.tum -a --t_max_diff 0.05 \
-    --save_plot vins_fused_ape.pdf --no_warnings 2>&1 | tee vins_fused_ape.txt
+evo_ape tum "$GT" vins_baro.tum -a --t_max_diff 0.05 \
+    --save_plot vins_baro_ape.pdf --no_warnings 2>&1 | tee vins_baro_ape.txt
+cp -f vins_baro_ape.txt vins_fused_ape.txt 2>/dev/null || true
 
 echo "=== 2b. Диспетчер ==="
 python3 "$VNAV_ROOT/tools/dispatcher.py" \
     "$VNAV_ROOT/results/vins_mars_${OUT_TAG}.csv" \
     "$VNAV_ROOT/results/dso_mars_${OUT_TAG}.tum" \
-    3657 nadyr | tee "$RES/dispatcher_mars.json"
+    3657 field | tee "$RES/dispatcher_mars.json"
 python3 "$VNAV_ROOT/tools/dispatcher.py" \
     /dev/null \
     "$VNAV_ROOT/results/dso_povorot_${OUT_TAG}.tum" \

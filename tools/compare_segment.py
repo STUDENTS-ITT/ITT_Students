@@ -21,7 +21,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from fuse_vins_rtk import compute_ate, fuse_vins_rtk, read_tum, write_tum  # noqa: E402
+from fuse_vins_baro import fuse_vins_baro, load_baro_height  # noqa: E402
+from fuse_vins_rtk import compute_ate, read_tum, write_tum  # noqa: E402
 
 
 BAG_T0 = 1671607365.0  # mars_hkairport03.bag start (Unix)
@@ -67,7 +68,8 @@ def main() -> int:
     ap.add_argument("--gt", type=Path, required=True)
     ap.add_argument("--start", type=float, default=50.0, help="сек от начала bag")
     ap.add_argument("--duration", type=float, default=90.0, help="длина окна, сек")
-    ap.add_argument("--fuse", action="store_true", help="RTK fusion перед ATE")
+    ap.add_argument("--fuse", action="store_true", help="сшивка reboot + баро Z перед ATE (без RTK)")
+    ap.add_argument("--baro", type=Path, default=None)
     args = ap.parse_args()
 
     t_min = BAG_T0 + args.start
@@ -78,7 +80,7 @@ def main() -> int:
 
     print(f"Окно: bag [{args.start:.0f}, {args.start + args.duration:.0f}] с  "
           f"({len(t_gt_s)} GT точек)\n")
-    print(f"{'run':<28} {'poses':>6} {'raw RMSE':>10} {'fused RMSE':>12} {'reboot~':>8}")
+    print(f"{'run':<28} {'poses':>6} {'raw RMSE':>10} {'baro RMSE':>12} {'reboot~':>8}")
     print("-" * 70)
 
     for csv in args.vins_csv:
@@ -92,7 +94,12 @@ def main() -> int:
         ate_raw = compute_ate(t_v, p_v, t_gt_s, p_gt_s)
         fused_rmse = float("nan")
         if args.fuse:
-            _, p_f, stats = fuse_vins_rtk(t_v, p_v, t_gt, p_gt, align_window=min(30, args.duration * 0.3))
+            baro_path = args.baro
+            if baro_path is None:
+                default_baro = ROOT / "data/mars/aux/dji_osdk_ros_height_above_takeoff.csv"
+                baro_path = default_baro if default_baro.exists() else None
+            baro_z = load_baro_height(baro_path, t_v) if baro_path else None
+            p_f, _stats = fuse_vins_baro(t_v, p_v, baro_z)
             ate_f = compute_ate(t_v, p_f, t_gt_s, p_gt_s)
             fused_rmse = ate_f["rmse"]
 

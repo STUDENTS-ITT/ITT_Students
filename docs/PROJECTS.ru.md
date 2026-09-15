@@ -8,9 +8,9 @@
 
 **fire-dron** — не замена VINS-Mono. Это **надстройка вокруг него**:
 
-- конфиги и патчи под **надирный** полёт MARS;
-- второй алгоритм **DSO** и **диспетчер**;
-- **слияние с RTK** после прогона;
+- конфиги и патчи под **надирный** полёт MARS (Livox IMU; DJI — fallback на HKairport03);
+- второй алгоритм **DSO** и **диспетчер** (`field` / `water` / `forest`);
+- **сшивка reboot + Z от баро** (`fuse_vins_baro.py`) — без RTK-коррекции;
 - скрипты, отчёт, видео, документация.
 
 Сам VINS-Mono и DSO **скачиваются и собираются отдельно** (см. `scripts/install/`).
@@ -90,7 +90,7 @@
 
 VINS создаёт **свою** СК: начало = точка инициализации, **(0, 0, 0)**.
 
-При **`system reboot`** (failure detection) эта СК **сбрасывается** — в RViz траектория «телепортируется» к началу. Это **не** движение дрона в реальности и **не** RTK.
+При **`system reboot`** (failure detection) upstream VINS сбрасывает СК в (0,0,0). Патч `tools/patch_reboot_anchor.py` якорит новое окно на **`last_P` / yaw(`last_R`)** — траектория не прыгает в origin. Offline `fuse_vins_baro.py` дополнительно сшивает сегменты по ΔVINS, если скачок всё же остался.
 
 На надирном MARS reboot бывает часто (повороты камеры, мало parallax).
 
@@ -98,9 +98,11 @@ VINS создаёт **свою** СК: начало = точка инициал�
 
 | Файл | Изменение |
 |------|-----------|
-| `config/mars_nadir.yaml` | Камера MARS, extrinsic надир, `show_track: 1` |
+| `config/mars_nadir.yaml` | Камера MARS, extrinsic надир, DJI IMU (fallback HKairport03) |
+| `config/mars_livox.yaml` / `mars_livox_valley.yaml` | Livox Avia IMU для новых bag (остров / лес) |
 | `tools/patch_nadir_parallax.py` | rot-gate / gyro-gate — меньше ложных keyframe на поворотах |
-| Патч в `feature_manager.cpp` | Применяется в catkin, нужен `catkin_make` |
+| `tools/patch_reboot_anchor.py` | После reboot окно якорится на `last_P` |
+| Патчи в `feature_manager.cpp` / `estimator.cpp` | Применяются в catkin, нужен `catkin_make` |
 
 Подробнее: [vins_mono_notes.md](vins_mono_notes.md), [patches_nadir_parallax.md](patches_nadir_parallax.md).
 
@@ -109,9 +111,10 @@ VINS создаёт **свою** СК: начало = точка инициал�
 | Режим | RTK участвует? |
 |-------|----------------|
 | Live: `rostopic echo /vins_estimator/odometry` | **Нет** |
-| Live: красный `rtk_path` в RViz | **Только линия для глаз** |
-| Batch: `fuse_vins_rtk.py` | **Да**, offline после прогона |
-| Batch: `vins_fused.tum` | VINS + привязка к RTK |
+| Live: красный `rtk_path` в RViz (`--rtk`) | **Только линия для глаз**, по умолчанию выкл. |
+| Batch: `fuse_vins_baro.py` | **Нет** — XY из ΔVINS, Z из баро |
+| Batch: ATE vs `*_gt.tum` | **Только оценка**, не коррекция |
+| Архив: `fuse_vins_rtk.py` | Старый offline RTK-assist, не продакшен |
 
 ---
 
@@ -141,12 +144,17 @@ VINS создаёт **свою** СК: начало = точка инициал�
 
 | Файл | Содержимое |
 |------|------------|
-| `mars_hkairport03.bag` | ROS-запись: камера + IMU (~6 мин полёта, Гонконг) |
-| `mars_hkairport03_gt.tum` | RTK/GNSS эталон: timestamp, x, y, z (метры ENU) |
+| `mars_hkairport03.bag` | Поле (аэродром): камера + **DJI IMU** (fallback, уже собранный bag) |
+| `mars_hkisland01.bag` | Вода (Kai Pei Chau): камера + **Livox IMU** после `official_bag_to_vins.py` |
+| `mars_amvalley01.bag` | Лес (Azizken): Livox IMU, конфиг `mars_livox_valley.yaml` |
+| `*_gt.tum` | RTK/GNSS эталон ENU — **только ATE**, не inject в траекторию |
+| `*_baro.csv` / `aux/dji_osdk_ros_height_above_takeoff.csv` | Баро Z для продакшен-сшивки |
 | `camera/images/` | Кадры для офлайн-видео |
 | `dso/` | Уменьшенные кадры + `camera.txt` для DSO |
 
-**RTK (Real-Time Kinematic)** — точные координаты с GNSS-базы, сантиметровый класс. В отчёте — **эталон**, с которым сравниваем VINS.
+Официальные bag: `scripts/download_mars_seq.sh`, конвертация: `tools/official_bag_to_vins.py`.
+
+**RTK (Real-Time Kinematic)** — точные координаты с GNSS-базы. В пайплайне — **эталон ATE**, не коррекция VO.
 
 ---
 
@@ -169,22 +177,24 @@ Live: VINS + RViz + (опционально) RTK path + окно `rostopic echo`
 
 Batch: VINS без GUI → `results/vins_mars_*.csv`.
 
-### `tools/fuse_vins_rtk.py`
+### `tools/fuse_vins_baro.py` (продакшен)
 
-**После** прогона VINS:
+**После** прогона VINS, **без RTK**:
 
-1. Выравнивание VINS → RTK (масштаб, yaw, сдвиг)
-2. Детекция reboot в CSV
-3. На reboot — привязка сегмента к RTK
-4. Z частично от RTK / baro
+1. Детекция reboot (скачок к origin / скорость)
+2. Сшивка сегментов: XY из приращений VINS, стык на last pose
+3. Z из барометра (`height_above_takeoff`), выровненный к первой позе VINS
+4. Если передан `--gt` — печатается ATE (оценка, не inject)
 
-Результат: `vins_fused.tum`. Fused ATE ~2–3 м **не** значит, что VINS сам так точен — там RTK-assist после reboot.
+Результат: `vins_baro.tum` (копируется в `vins_fused.tum` для совместимости со старыми скриптами).
+
+Архив: `tools/fuse_vins_rtk.py` — старый RTK-assist; не использовать в продакшене.
 
 ### `tools/dispatcher.py`
 
-Смотрит: сколько поз выдал VINS и DSO, lost или нет, тип сцены (`nadyr` / `city`).
+Смотрит: сколько поз выдал VINS и DSO, lost или нет, тип сцены (`nadyr` / `field` / `water` / `forest` / `city` / `mixed`).
 
-На MARS надир: **выбор VINS**, DSO — health-check.
+На MARS надир/поле/вода: **выбор VINS**, DSO — health-check (не fallback). Лес: VINS, иначе DSO по кронам.
 
 ### `tools/generate_combined_report.py`
 
@@ -215,8 +225,8 @@ PDF `ОТЧЁТ_ОБЪЕДИНЁННЫЙ_АЛГОРИТМ.pdf` — метрик�
                     │           BATCH (метрики, отчёт)     │
                     │  run_vins_mars.sh → production_mars  │
                     │  • CSV / TUM на диск                 │
-                    │  • fuse_vins_rtk.py                  │
-                    │  • evo ATE, PDF, видео               │
+                    │  • fuse_vins_baro.py (без RTK)       │
+                    │  • evo ATE vs RTK (только оценка)    │
                     └─────────────────────────────────────┘
 ```
 
@@ -261,18 +271,18 @@ PDF `ОТЧЁТ_ОБЪЕДИНЁННЫЙ_АЛГОРИТМ.pdf` — метрик�
 Да, тот же upstream VINS-Mono + наши конфиги и патчи под надир MARS.
 
 **RTK в live правит odom?**  
-Нет. RTK — отдельная линия в RViz или offline fusion.
+Нет. По умолчанию RTK в RViz выключен; `--rtk` рисует эталон. Offline продакшен — `fuse_vins_baro.py` (баро Z, без RTK).
 
 **Почему траектория прыгает?**  
-`system reboot` — новая локальная СК VINS, origin снова (0,0,0).
+`system reboot` — новая локальная СК VINS. Патч reboot-anchor держит `last_P`; `fuse_vins_baro.py` сшивает остатки скачков.
 
 **DSO лучше VINS на MARS?**  
 Нет. На nadир MARS VINS + IMU даёт ~75% покрытия; DSO ~21%.
 
 **Где «настоящий» результат для отчёта?**  
 `results/vins_mars_run8e_parallax.csv` (raw VINS),  
-`results/eval_mars_run8e_fused/vins_fused.tum` (после fusion),  
-`ОТЧЁТ_ОБЪЕДИНЁННЫЙ_АЛГОРИТМ.pdf`.
+`results/eval_mars_run8e_fused/vins_baro.tum` (сшивка + баро; `vins_fused.tum` — копия),  
+`ОТЧЁТ_ОБЪЕДИНЁННЫЙ_АЛГОРИТМ.pdf`. Три сцены: `./scripts/eval_three_scenes.sh`.
 
 ---
 

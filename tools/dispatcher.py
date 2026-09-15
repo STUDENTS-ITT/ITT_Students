@@ -3,10 +3,12 @@
 Диспетчер VINS-Mono и DSO для fire-dron.
 
 Выбирает алгоритм по типу сцены и качеству трекинга:
-- Надир + IMU + открытая местность → VINS-Mono (основной)
-- Город, фасады, богатая текстура → DSO + внешний масштаб
-- DSO LOST на надир → НЕ fallback на DSO; health-check → low_confidence / imu_only
-- VINS не инициализировался → DSO (если текстура есть, только city/mixed)
+- Надир / поле / вода + IMU → VINS-Mono (основной канал, всегда)
+- Лес: VINS основной; DSO только если VINS потерял трек
+- Город, фасады, улица — профиль DSO (другой вариант одометрии)
+- DSO на надир/поле/воду — health-check, не навигационный fallback
+- Вода без фич → imu_only + баро Z
+RTK в диспетчер не входит (только ATE снаружи).
 
 Входы: траектории VINS и DSO
 Выходы: выбранная траектория + метрики качества + health status
@@ -21,6 +23,12 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
+
+NADIR_LIKE = {"nadyr", "field", "water"}
+
+
+def _nadir_like(scene_type: str) -> bool:
+    return scene_type in NADIR_LIKE
 
 
 @dataclass
@@ -170,19 +178,33 @@ def assess_health(
     dso_lost = dso.is_lost or not dso.is_initialized
 
     if not vins.is_initialized or vins.is_lost:
-        if scene_type == "nadyr" and dso.is_initialized and not dso.is_lost:
+        if scene_type == "water":
+            return HealthStatus(
+                status="imu_only",
+                vins_reboots=vins_reboots,
+                dso_lost=dso_lost,
+                recommendation="Вода: мало фич — только IMU/баро Z, DSO не fallback",
+            )
+        if scene_type == "forest" and dso.is_initialized and not dso.is_lost:
+            return HealthStatus(
+                status="low_confidence",
+                vins_reboots=vins_reboots,
+                dso_lost=False,
+                recommendation="Лес: VINS потерян — DSO по текстуре крон",
+            )
+        if _nadir_like(scene_type) and dso.is_initialized and not dso.is_lost:
             return HealthStatus(
                 status="low_confidence",
                 vins_reboots=vins_reboots,
                 dso_lost=False,
                 recommendation="Нет IMU/VINS — DSO единственный канал; ограниченная точность",
             )
-        if scene_type == "nadyr":
+        if _nadir_like(scene_type):
             return HealthStatus(
                 status="imu_only",
                 vins_reboots=vins_reboots,
                 dso_lost=dso_lost,
-                recommendation="VINS не инициализирован — только БИНС/IMU, DSO не использовать на надир",
+                recommendation="VINS не инициализирован — только БИНС/IMU, DSO не использовать на надир/поле",
             )
         return HealthStatus(
             status="lost",
@@ -191,14 +213,14 @@ def assess_health(
             recommendation="Оба канала потеряны — только БИНС",
         )
 
-    if vins_reboots > 0 and dso_lost and scene_type == "nadyr":
+    if vins_reboots > 0 and dso_lost and _nadir_like(scene_type):
         return HealthStatus(
             status="low_confidence",
             vins_reboots=vins_reboots,
             dso_lost=True,
             recommendation=(
                 f"VINS reboot ×{vins_reboots} + DSO LOST — низкая достоверность; "
-                "рекомендуется imu_only или RTK-fusion с graceful degradation"
+                "рекомендуется imu_only + баро Z"
             ),
         )
 
@@ -229,37 +251,55 @@ def choose_algorithm(
     На надир: DSO НЕ используется как fallback для навигации.
     """
     
-    if scene_type == "nadyr":
+    if scene_type in ("nadyr", "field"):
         if vins.is_initialized and not vins.is_lost:
-            reason = "VINS (надир + IMU, основной канал)"
+            reason = "VINS (поле/надир + IMU, основной канал)"
             if health and health.status == "low_confidence":
                 reason += f"; health={health.status}, reboots={health.vins_reboots}"
             return vins, reason
-        # Поворот_коптер и др.: нет IMU — DSO единственный источник одометрии
         if not vins.is_initialized and dso.is_initialized and not dso.is_lost:
             return dso, "DSO (нет IMU/VINS, единственный канал; не для навигации надир-MARS)"
         if health and health.status in ("imu_only", "lost"):
             return vins, f"VINS недоступен → {health.recommendation}"
-        return vins, "VINS (надир, DSO не fallback — только health-check)"
-    
-    elif scene_type == "city":
+        return vins, "VINS (надир/поле, DSO не fallback — только health-check)"
+
+    if scene_type == "water":
+        if vins.is_initialized and not vins.is_lost:
+            return vins, "VINS (вода: пока есть фичи берега/волн)"
+        return vins, "VINS недоступен над водой → imu_only + баро Z, DSO не fallback"
+
+    if scene_type == "forest":
+        if vins.is_initialized and not vins.is_lost:
+            return vins, "VINS (лес + IMU)"
+        if dso.is_initialized and not dso.is_lost:
+            return dso, "DSO (VINS потерял трек — запас по текстуре крон)"
+        return vins, "Оба слабые в лесу → IMU/баро"
+
+    # Любая сцена с 3D-текстурой: если VINS молчит, а DSO жив — DSO.
+    if (
+        scene_type not in NADIR_LIKE
+        and (not vins.is_initialized or vins.is_lost)
+        and dso.is_initialized
+        and not dso.is_lost
+    ):
+        return dso, "DSO (VINS потерян, есть текстура)"
+
+    if scene_type == "city":
         if dso.is_initialized and not dso.is_lost:
             return dso, "DSO (город, богатая текстура)"
         elif vins.is_initialized and not vins.is_lost:
             return vins, "VINS (DSO потерял, fallback к VINS)"
         else:
             return dso, "DSO (оба потеряны, но город - DSO профиль)"
-    
-    else:  # mixed
-        if vins.coverage_pct >= 80 or (vins.is_initialized and not dso.is_initialized):
-            return vins, "VINS (лучшее покрытие или DSO не инициализировался)"
-        elif dso.coverage_pct >= 60 and not dso.is_lost:
-            return dso, "DSO (хорошее покрытие)"
-        else:
-            if vins.num_poses >= dso.num_poses:
-                return vins, "VINS (больше поз)"
-            else:
-                return dso, "DSO (больше поз)"
+
+    # mixed и неизвестные типы — по покрытию
+    if vins.coverage_pct >= 80 or (vins.is_initialized and not dso.is_initialized):
+        return vins, "VINS (лучшее покрытие или DSO не инициализировался)"
+    if dso.coverage_pct >= 60 and not dso.is_lost:
+        return dso, "DSO (хорошее покрытие)"
+    if vins.num_poses >= dso.num_poses:
+        return vins, "VINS (больше поз)"
+    return dso, "DSO (больше поз)"
 
 
 def main():
@@ -269,7 +309,7 @@ def main():
         print("  vins_csv: путь к results/vins_mars_run2_calib.csv")
         print("  dso_tum: путь к results/dso_mars_run2_calib.tum")
         print("  num_frames: число кадров в датасете (например, 3657)")
-        print("  scene_type: 'nadyr' (default), 'city', 'mixed'")
+        print("  scene_type: nadyr|field|water|forest|city|mixed")
         sys.exit(1)
     
     vins_path = Path(sys.argv[1])

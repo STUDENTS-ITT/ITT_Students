@@ -1,0 +1,138 @@
+%YAML:1.0
+# VINS-Mono, HKairport03, официальный SLAM-IMU Livox Avia (/livox/imu → /imu0).
+#
+# Без поворота Livox→DJI: IMU жёстко с камерой+LiDAR, гравитация ≈ +X Livox.
+# Intrinsics/extrinsics: HK_GNSS (шахматная доска + camera_ext датасета).
+# R_ic = Rcl^T, t_ic = -T_il - Rcl^T Pcl.
+# td = +0.1 с: у FAST-LIVO2 img_time_offset = −0.1, знак в VINS обратный.
+# Свип 90 с (start=62): td=+0.1 → ATE 55.6 м, td=0 → 109.9 м, td=−0.1 → 87.2 м.
+#--------------------------------------------------------------------------
+imu_topic: "/imu0"
+image_topic: "/cam0/image_raw"
+output_path: "/home/USER/vnav/results/vins_out/"
+
+model_type: PINHOLE
+camera_name: camera
+image_width: 608
+image_height: 512
+
+distortion_parameters:
+   k1: -0.05600000
+   k2: 0.11800000
+   p1: 0.00122000
+   p2: 0.00064000
+
+projection_parameters:
+   fx: 358.7473
+   fy: 361.0850
+   cx: 292.9477
+   cy: 261.2250
+
+estimate_extrinsic: 0
+
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.00363212, -0.01116790, 0.99987900,
+          -0.99981900, 0.02145120, 0.00375613,
+          -0.02136180, -0.99959100, -0.01111340]
+
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [0.010190, -0.026269, 0.074795]
+
+max_cnt: 400
+min_dist: 15
+freq: 0
+F_threshold: 1.0
+show_track: 1
+equalize: 0
+fisheye: 0
+
+max_solver_time: 0.06
+max_num_iterations: 10
+# 6 px — Opus 255 с (path 1915/1908). 2.0 ломает масштаб (ATE 365 м, clamp).
+# pose_graph KF идут с pubKeyframe на каждый кадр + skip_dis, не через parallax.
+keyframe_parallax: 6.0
+
+# BMI088 (Livox Avia)
+acc_n: 0.20
+# 0.05 — Opus 5.0. 0.01 взрывал окно (ATE ~100 м, clamp). Курс чинит
+# yawAboutGravity в double2vector(), не ужесточение gyr_n.
+gyr_n: 0.05
+acc_w: 0.002
+gyr_w: 4.0e-5
+g_norm: 9.79362
+
+loop_closure: 1
+load_previous_pose_graph: 0
+# 0: петля правит только pose_graph (loop.csv). Не кормить VINS ложными петлями.
+fast_relocalization: 0
+pose_graph_save_path: "/home/USER/vnav/results/pose_graph/"
+
+estimate_td: 0
+td: 0.1
+
+rolling_shutter: 0
+rolling_shutter_tr: 0
+
+save_image: 0
+visualize_imu_forward: 0
+visualize_camera_size: 0.4
+
+# Глубина инициализации фич ≈ высота над полем (баро ~80 м на HKairport03).
+# Штатные 5 м VINS-Mono здесь сжимают траекторию в 10–20 раз.
+# Работает до первого /baro, дальше INIT_DEPTH = текущая высота.
+init_depth: 80.0
+
+#--------------------------------------------------------------------------
+# Приор плоской земли (tools/patch_baro_ground.py): глубина фичи ≈ высота над землёй.
+# Опора — бортовой барометр (НЕ RTK), а если его нет, номинальная init_depth.
+# В HKairport03 топик height_above_takeoff пустой: h≈0 при реальных 80 м.
+# Тогда Δz = 0 (крейсер) и глубина фич = init_depth. RTK в estimator не идёт.
+#   baro_ground_sigma — допуск по глубине фичи, м: рельеф и строения.
+#   baro_z_sigma      — шум разности высот соседних кадров окна, м.
+#--------------------------------------------------------------------------
+baro_topic: "/baro"
+use_baro_ground: 1
+# Свип 90 с: sigma 25 → ATE 47.7 м, 60 → 39.4 м, 150 → 63.0 м.
+baro_ground_sigma: 60.0
+baro_z_sigma: 0.5
+
+# Приор нулевого смещения акселерометра, м/с². 0 = выключен.
+# Держит Bas в пределах порога failureDetection (2.5 м/с²): без него
+# на крейсере смещение разгоняется и даёт 17–30 перезапусков за 90 с.
+# Свип: 0.3 → ATE 48.7 м, 0.1 → 39.4 м, 0.05 → 53.1 м, 0.02 → 45.4 м.
+acc_bias_prior_sigma: 0.1
+
+#--------------------------------------------------------------------------
+# Курс от гироскопа (tools/patch_gyro_yaw.py). RTK не используется.
+# Надирный визуал на 80 м перетягивает yaw вокруг оптической оси.
+#   gyro_yaw_sigma       — σ разности yaw соседних кадров окна, рад.
+#   gyr_bias_prior_sigma — приор Bgs, рад/с (не даёт bias съесть yaw).
+#   projection_info_scale — множитель веса проекций (1 = штатный VINS).
+#--------------------------------------------------------------------------
+# Extra Ceres-фактор курса выключен: AutoDiff на 7-кватернионе ломал окно.
+gyro_yaw_sigma: 0.0
+gyr_bias_prior_sigma: 0.0
+projection_info_scale: 1.0
+# Курс овала — не Livox (почти нет yaw) и не RTK. После VINS:
+# tools/fuse_vins_ahrs.py крутит шаг VINS кватернионом AHRS DJI.
+# lock_yaw_to_imu оставляем 0: иначе окно + clamp снова спиралят.
+lock_yaw_to_imu: 0
+
+#--------------------------------------------------------------------------
+# Планарная гомография на поле (tools/planar_vo): разделение наклона и XY.
+# Трекер: AHRS-компенсация перед LK. Estimator: H→(R,t) после Ceres, без XY-clamp.
+# Sidecar — DJI AHRS CSV; dji_camera_offset — сдвиг DJI epoch → camera stamp, с.
+# На water/forest: nadir_planar_mode: 0
+#--------------------------------------------------------------------------
+nadir_planar_mode: 1
+ahrs_tilt_comp: 1
+ahrs_sidecar: "/home/USER/data/mars/aux/dji_osdk_ros_imu.csv"
+dji_camera_offset: 2.803
+planar_max_wz: 0.25
+

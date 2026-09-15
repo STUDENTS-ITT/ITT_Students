@@ -1,18 +1,19 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 .venv/
 venv/
 build/ devel/ .catkin_workspace logs/
 .idea/ .vscode/ *.swp *~ .DS_Store
-
-# Слишком большие (скачать отдельно)
-data/mars/mars_hkairport03.bag
+*.bag
+*.mcap
+data/mars/raw/
+data/mars/*_dji_imu.csv
 data/mars/camera/images/
 data/mars/dso/images/
-results/combined_run8e_fused/mars_viz/mars_hk_flight.avi
-
-# Промежуточные логи
+data/povorot_kopter/images/
 results/*.log
 results/vins_out/
 results/timing/
-*.webm
+results/eval_vo_*/
+results/videos/*.mp4
+results/videos/*.avi

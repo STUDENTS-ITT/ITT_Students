@@ -1,31 +1,43 @@
 #!/usr/bin/env bash
+# Синхронизация fire-dron → ветка VO-VINS репозитория ITT_Students.
+# Не трогает git config. Большие bag/mcap/видео в git не кладём.
 set -euo pipefail
-SRC="/home/vasiliy/Downloads/cursor/Projects/fire-dron"
-WORK="/tmp/vo-vins-repo"
-REPO="https://github.com/STUDENTS-ITT/ITT_Students.git"
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+WORK="${VO_VINS_WORK:-/tmp/vo-vins-repo}"
+REPO="${VO_VINS_REPO:-https://github.com/STUDENTS-ITT/ITT_Students.git}"
 
 rm -rf "$WORK"
-git clone "$REPO" "$WORK"
+git clone --branch VO-VINS --single-branch "$REPO" "$WORK"
 cd "$WORK"
-git checkout -b VO-VINS
 find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 
-rsync -a --exclude='.git' \
-  --exclude='data/mars/camera/images' \
-  --exclude='data/mars/dso/images' \
-  --exclude='data/mars/mars_hkairport03.bag' \
-  --exclude='results/vins_out' \
-  --exclude='results/timing' \
+rsync -a \
+  --exclude='.git' \
+  --exclude='data/mars/raw/' \
+  --exclude='data/mars/*.bag' \
+  --exclude='data/mars/*_dji_imu.csv' \
+  --exclude='data/mars/camera/images/' \
+  --exclude='data/mars/dso/images/' \
+  --exclude='data/povorot_kopter/images/' \
+  --exclude='results/vins_out/' \
+  --exclude='results/timing/' \
   --exclude='results/*.log' \
-  --exclude='results/combined_run8e_fused/mars_viz/mars_hk_flight.avi' \
-  --exclude='results/combined_run8e_fused/assets/video_posters/_pdf_*' \
+  --exclude='results/eval_vo_*' \
+  --exclude='results/videos/' \
+  --exclude='results/eval_vo_*' \
+  --exclude='results/eval_mars_scene_field_lawn_*' \
+  --exclude='results/eval_mars_scene_field_*_vo' \
+  --exclude='results/vins_mars_scene_field_lawn_*' \
+  --exclude='results/vins_mars_scene_field_planar*' \
+  --exclude='results/combined_run8e_fused/mars_viz/*.avi' \
   --exclude='__pycache__' \
   --exclude='.venv' \
+  --exclude='*.webm' \
+  --exclude='*.mcap' \
   "$SRC/" "$WORK/"
 
 cp "$SRC/README.github.md" "$WORK/README.md"
 
-# .gitignore для ветки VO-VINS
 cat > "$WORK/.gitignore" <<'GI'
 __pycache__/
 *.py[cod]
@@ -33,36 +45,48 @@ __pycache__/
 venv/
 build/ devel/ .catkin_workspace logs/
 .idea/ .vscode/ *.swp *~ .DS_Store
-
-# Слишком большие (скачать отдельно)
-data/mars/mars_hkairport03.bag
+*.bag
+*.mcap
+data/mars/raw/
+data/mars/*_dji_imu.csv
 data/mars/camera/images/
 data/mars/dso/images/
-results/combined_run8e_fused/mars_viz/mars_hk_flight.avi
-
-# Промежуточные логи
+data/povorot_kopter/images/
 results/*.log
 results/vins_out/
 results/timing/
+results/eval_vo_*/
+results/videos/*.mp4
+results/videos/*.avi
 GI
 
 git add -A
-git status --short | head -40
-echo "---"
+echo "--- status ---"
+git status --short | head -60 || true
+echo "--- size ---"
 du -sh "$WORK"
-find "$WORK" -type f -size +90M 2>/dev/null | while read f; do ls -lh "$f"; done
+find "$WORK" -type f -size +90M 2>/dev/null | while read -r f; do ls -lh "$f"; done || true
 
-git config user.email "vasiliy@users.noreply.github.com" 2>/dev/null || true
-git config user.name "Vasiliy" 2>/dev/null || true
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-VO-VINS}"
+export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-vo-vins@students-itt.local}"
+export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
 
-git commit -m "$(cat <<'EOF'
-Add VO-VINS: VINS-Mono + DSO + RTK fusion pipeline
+# git 2.25 не понимает --trailer от обёртки Cursor — только /usr/bin/git -F
+MSG=/tmp/vo-vins-commit-msg.txt
+cat > "$MSG" <<'EOF'
+VINS: full field/water/forest runs, interim PDF report, planar field mode.
 
-Combined nadir VIO for MARS-LVIG and Поворот_коптер datasets.
-Includes PDF report, demo videos (MP4/AVI), configs, fusion tools,
-dispatcher, and full documentation for reproduction.
+- generate_vins_report.py: timing table + traj/error for 3 scenes
+- production: VINS + baro Z + AHRS yaw (--keep-xy on field planar)
+- RTK eval-only; removed local logs, old lawn/planar experiment artifacts
 EOF
-)"
+/usr/bin/git commit -F "$MSG"
 
-git push -u origin VO-VINS
-echo "DONE: https://github.com/STUDENTS-ITT/ITT_Students/tree/VO-VINS"
+echo "Коммит готов. Push:"
+echo "  cd $WORK && git push origin VO-VINS"
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  git push "https://x-access-token:${GITHUB_TOKEN}@github.com/STUDENTS-ITT/ITT_Students.git" VO-VINS
+else
+  git push origin VO-VINS
+fi

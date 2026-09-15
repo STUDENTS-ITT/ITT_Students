@@ -1,0 +1,98 @@
+%YAML:1.0
+# VINS-Mono для MARS-LVIG с официальным IMU пакета камеры: Livox Avia BMI088.
+#
+# Гимбальный IMU DJI L1 в публичный rosbag НЕ пишется (mapping GT).
+# SLAM-IMU датасета: /livox/imu @ ~200 Гц, жёстко с Livox+Hikvision на одной плате.
+# Extrinsic камера↔LiDAR: выпуск датасета HKisland (camera_ext_R/t), не «средний» FAST-LIVO2 HK.
+# IMU Livox: T_il Avia. R_ic = Rcl^T, t_ic = -T_il - Rcl^T Pcl.
+#--------------------------------------------------------------------------
+imu_topic: "/imu0"
+image_topic: "/cam0/image_raw"
+output_path: "/home/USER/vnav/results/vins_out/"
+
+model_type: PINHOLE
+camera_name: camera
+image_width: 608
+image_height: 512
+
+distortion_parameters:
+   k1: -0.05300000
+   k2: 0.12100000
+   p1: 0.00127000
+   p2: 0.00043000
+
+projection_parameters:
+   fx: 358.7473
+   fy: 361.0850
+   cx: 292.5255
+   cy: 260.9000
+
+# Камера → Livox IMU (HKisland / HKairport)
+estimate_extrinsic: 0
+
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.00352762, -0.01118030, 0.99993100,
+          -0.99976500, 0.02133690, 0.00376561,
+          -0.02137750, -0.99971000, -0.01110250]
+
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [0.010219, -0.026626, 0.074807]
+
+max_cnt: 250
+min_dist: 20
+freq: 0
+F_threshold: 1.0
+show_track: 1
+equalize: 1
+fisheye: 0
+
+max_solver_time: 0.06
+max_num_iterations: 10
+keyframe_parallax: 6.0
+
+# BMI088 (Livox Avia): шумнее DJI FC MEMS
+acc_n: 0.20
+gyr_n: 0.05
+acc_w: 0.002
+gyr_w: 4.0e-5
+g_norm: 9.79362
+
+loop_closure: 1
+load_previous_pose_graph: 0
+fast_relocalization: 0
+pose_graph_save_path: "/home/USER/vnav/results/pose_graph/"
+
+estimate_td: 0
+td: 0.0
+
+rolling_shutter: 0
+rolling_shutter_tr: 0
+
+save_image: 0
+visualize_imu_forward: 0
+visualize_camera_size: 0.4
+
+# Типичная высота надирной съёмки MARS (~80 м), не RTK.
+# Штатные 5 м VINS-Mono сжимают масштаб в 10–20 раз (вода: Sim2 0.36).
+init_depth: 80.0
+
+# Приор плоской земли (patch_baro_ground.py). Опора — баро /baro, не RTK.
+# На HKisland01 height_above_takeoff тоже не AGL → глубина = init_depth.
+baro_topic: "/baro"
+use_baro_ground: 1
+baro_ground_sigma: 60.0
+baro_z_sigma: 0.5
+acc_bias_prior_sigma: 0.1
+
+# Курс: не Livox и не RTK. После VINS — tools/fuse_vins_ahrs.py (AHRS DJI).
+# Ceres gyro_yaw и lock_yaw_to_imu выключены: ломают окно / спиралят.
+gyro_yaw_sigma: 0.0
+gyr_bias_prior_sigma: 0.0
+projection_info_scale: 1.0
+lock_yaw_to_imu: 0

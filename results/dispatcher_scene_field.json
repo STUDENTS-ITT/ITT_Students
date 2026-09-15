@@ -1,0 +1,25 @@
+{
+  "chosen_algorithm": "vins",
+  "reason": "VINS (поле/надир + IMU, основной канал)",
+  "health": {
+    "status": "ok",
+    "vins_reboots": 0,
+    "dso_lost": true,
+    "recommendation": "Нормальный режим VINS+IMU"
+  },
+  "vins": {
+    "num_poses": 655,
+    "coverage_pct": 72.77777777777777,
+    "is_initialized": true,
+    "is_lost": false,
+    "note": "655 поз, покрытие 72.8%"
+  },
+  "dso": {
+    "num_poses": 0,
+    "coverage_pct": 0.0,
+    "is_initialized": false,
+    "is_lost": true,
+    "note": "Файл не найден или пуст"
+  },
+  "scene_type": "field"
+}

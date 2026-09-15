@@ -1,0 +1,93 @@
+%YAML:1.0
+# Livox IMU + extrinsic FAST-LIVO2 для AMtown / AMvalley (Azizken Forest).
+# Отличается от HKisland/HKairport блоком Rcl/Pcl.
+imu_topic: "/imu0"
+image_topic: "/cam0/image_raw"
+output_path: "/home/USER/vnav/results/vins_out/"
+
+model_type: PINHOLE
+camera_name: camera
+image_width: 608
+image_height: 512
+
+distortion_parameters:
+   k1: -0.05200000
+   k2: 0.11680000
+   p1: 0.00150000
+   p2: 0.00013000
+
+projection_parameters:
+   fx: 361.0944
+   fy: 363.2125
+   cx: 293.7003
+   cy: 261.4550
+
+estimate_extrinsic: 0
+
+# Rcl_valley^T; t = T_il - Rcl^T * Pcl
+# Rcl: [-0.0022464, -0.9997299, -0.0231319;
+#       -0.0084211,  0.0231501, -0.9996966;
+#        0.9999620, -0.0020509, -0.0084708]
+# Pcl: [-0.0025563, 0.0567484, -0.0512149]
+# T_il: [0.04165, 0.02326, -0.0284]
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.00298068, -0.00504595, 0.99998500,
+          -0.99973500, 0.02313200, 0.00309701,
+          -0.02314280, -0.99974000, -0.00497598]
+
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [0.009858, -0.026970, 0.084820]
+
+max_cnt: 250
+min_dist: 20
+freq: 0
+F_threshold: 1.0
+show_track: 1
+equalize: 1
+fisheye: 0
+
+max_solver_time: 0.06
+max_num_iterations: 10
+keyframe_parallax: 6.0
+
+acc_n: 0.20
+gyr_n: 0.05
+acc_w: 0.002
+gyr_w: 4.0e-5
+g_norm: 9.79362
+
+loop_closure: 1
+load_previous_pose_graph: 0
+fast_relocalization: 0
+pose_graph_save_path: "/home/USER/vnav/results/pose_graph/"
+
+estimate_td: 0
+td: -0.1
+
+rolling_shutter: 0
+rolling_shutter_tr: 0
+
+save_image: 0
+visualize_imu_forward: 0
+visualize_camera_size: 0.4
+
+# Лес: выше типичного поля (кроны + клиренс), не измерение RTK.
+# Без этого INIT_DEPTH=5 → 66% clamp 1.5 м на AMvalley01.
+init_depth: 100.0
+
+baro_topic: "/baro"
+use_baro_ground: 1
+baro_ground_sigma: 80.0
+baro_z_sigma: 0.5
+acc_bias_prior_sigma: 0.1
+
+gyro_yaw_sigma: 0.0
+gyr_bias_prior_sigma: 0.0
+projection_info_scale: 1.0
+lock_yaw_to_imu: 0

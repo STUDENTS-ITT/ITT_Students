@@ -10,8 +10,9 @@
 
 - **VINS-Mono** — основной алгоритм (камера + IMU), полёт MARS HKairport03
 - **DSO** — запасной канал (только камера), «Поворот_коптер»
-- **Диспетчер** — выбирает алгоритм по сцене
-- **RTK fusion** — постобработка траектории VINS с эталоном GNSS/RTK
+- **Диспетчер** — выбирает алгоритм по сцене (`field` / `water` / `forest`)
+- **fuse_vins_baro.py** — сшивка reboot + Z от баро (продакшен, **без RTK**)
+- **RTK** — только эталон ATE и опциональная линия в RViz (`--rtk`)
 
 Два режима работы:
 
@@ -79,28 +80,32 @@ cd ~/Downloads/cursor/Projects/fire-dron
 cd ~/Downloads/cursor/Projects/fire-dron
 
 mkdir -p ~/catkin_ws/src/VINS-Mono/config/mars
-cp config/mars_nadir.yaml ~/catkin_ws/src/VINS-Mono/config/mars/
-cp config/mars_nadir.launch ~/catkin_ws/src/VINS-Mono/vins_estimator/launch/
-sed -i "s|/home/USER|$HOME|g" ~/catkin_ws/src/VINS-Mono/config/mars/mars_nadir.yaml
+cp config/mars_nadir.yaml config/mars_livox.yaml config/mars_livox_valley.yaml \
+   ~/catkin_ws/src/VINS-Mono/config/mars/
+cp config/mars_nadir.launch config/mars_livox.launch config/mars_livox_valley.launch \
+   ~/catkin_ws/src/VINS-Mono/vins_estimator/launch/
+sed -i "s|/home/USER|$HOME|g" ~/catkin_ws/src/VINS-Mono/config/mars/*.yaml
 ```
 
 **Что внутри:**
 
-- `mars_nadir.yaml` — камера, IMU, extrinsic, parallax, `show_track: 1`
-- `mars_nadir.launch` — три ноды: `feature_tracker`, `vins_estimator`, `pose_graph`
+- `mars_nadir.yaml` — DJI IMU, **fallback** для уже собранного HKairport03
+- `mars_livox.yaml` / `mars_livox_valley.yaml` — Livox Avia IMU для новых bag (остров / лес)
+- `mars_*.launch` — три ноды: `feature_tracker`, `vins_estimator`, `pose_graph`
 
 `sed` заменяет `/home/USER` на ваш логин — иначе VINS не найдёт папку для сохранения траектории.
 
 После изменения yaml в репозитории повторите `cp` и `sed`, чтобы catkin получил актуальную версию.
 
-### 1.3. Патч nadir parallax + пересборка VINS (run8e)
+### 1.3. Патчи nadir parallax + reboot-anchor (run8e)
 
-Патч правит исходники VINS в `~/catkin_ws` — блокирует keyframe при быстром повороте камеры (rot-gate, gyro-gate). Без пересборки патч не работает.
+Патчи правят исходники VINS в `~/catkin_ws`. `patch_nadir_parallax.py` — rot/gyro-gate. `patch_reboot_anchor.py` — после `system reboot` новое окно якорится на `last_P`, а не на (0,0,0). Без пересборки патчи не работают.
 
 ```bash
 cd ~/Downloads/cursor/Projects/fire-dron
 
 python3 tools/patch_nadir_parallax.py
+python3 tools/patch_reboot_anchor.py --vins ~/catkin_ws/src/VINS-Mono
 
 source /opt/ros/noetic/setup.bash
 cd ~/catkin_ws && catkin_make -j$(nproc)
@@ -144,12 +149,12 @@ cd ~/Downloads/cursor/Projects/fire-dron
 По умолчанию скрипт также:
 
 - открывает **второй терминал** с `rostopic echo /vins_estimator/odometry` — как в [демо VINS-Mono](https://www.youtube.com/watch?v=yRPl4zy9z1c) справа снизу;
-- публикует **RTK только для RViz** (красный `rtk_path`), **не** в odom.
+- **не** публикует RTK (это не коррекция). Красный `rtk_path` только с флагом `--rtk`.
 
-**Чистый VINS без RTK в RViz:**
+**Эталон RTK в RViz (только для глаз):**
 
 ```bash
-./scripts/run_vins_mars_live.sh 1.0 50 --play 90 --no-rtk
+./scripts/run_vins_mars_live.sh 1.0 50 --play 90 --rtk
 ```
 
 **Без окна odom** (только RViz):
@@ -244,10 +249,10 @@ rosbag play --clock -r 0.3 -s 50 ~/Downloads/cursor/Projects/fire-dron/data/mars
 | `pose.orientation` | Ориентация |
 | `twist` | Скорости |
 
-**Чистый VINS** — RTK в odom не входит. `/mars/rtk_path` — только для RViz. Fusion — offline (`fuse_vins_rtk.py`).
+**Чистый VINS** — RTK в odom не входит. Fusion — offline (`fuse_vins_baro.py`, без RTK). `/mars/rtk_path` — только RViz и только с `--rtk`.
 
 ```bash
-./scripts/run_vins_mars_live.sh 1.0 50 --play 90 --no-rtk
+./scripts/run_vins_mars_live.sh 1.0 50 --play 90 --rtk
 ./scripts/run_vins_mars_live.sh 1.0 50 --play 90 --no-echo-odom
 ```
 
@@ -320,7 +325,7 @@ cd ~/Downloads/cursor/Projects/fire-dron
 # Шаг 2: DSO на MARS (~минуты)
 ./scripts/run_dso_mars.sh 0 run8e_fused
 
-# Шаг 3: RTK fusion + evo ATE
+# Шаг 3: сшивка reboot + баро Z + evo ATE (RTK только оценка)
 ./scripts/production_mars.sh results/vins_mars_run8e_parallax.csv run8e_fused
 
 # Шаг 4: Диспетчер, пересборка видео, PDF
@@ -347,7 +352,7 @@ cd ~/Downloads/cursor/Projects/fire-dron
 ./scripts/run_vins_mars.sh 1.0 50 test_q 90
 ```
 
-Сравнение с эталоном на том же окне:
+Сравнение с эталоном на том же окне (`--fuse` — сшивка reboot + баро Z, **без** snap к RTK):
 
 ```bash
 python3 tools/compare_segment.py \
@@ -355,6 +360,12 @@ python3 tools/compare_segment.py \
     --start 50 --duration 90 --fuse \
     results/vins_mars_run8e_parallax.csv \
     results/vins_mars_test_q.csv
+```
+
+Три сцены (поле / вода / лес), окно 90 с:
+
+```bash
+./scripts/eval_three_scenes.sh
 ```
 
 ---
@@ -485,7 +496,8 @@ Bag закончился, часть нод ещё работает. **Ctrl+C** 
 | `run_vins_mars.sh` | Получить траекторию VINS | `results/vins_mars_*.csv` |
 | `run_dso_mars.sh` | DSO на MARS | `results/dso_mars_*.tum` |
 | `run_dso_povorot.sh` | DSO на Поворот_коптер | `results/dso_povorot_*.tum` |
-| `production_mars.sh` | RTK fusion + ATE | `results/eval_mars_*/vins_fused.tum` |
+| `production_mars.sh` | Сшивка baro + ATE vs RTK | `results/eval_mars_*/vins_baro.tum` |
+| `eval_three_scenes.sh` | Поле / вода / лес, окно 90 с | `results/eval_mars_scene_*/` |
 | `finalize_run8.sh` | Видео + PDF + диспетчер | `combined_run8e_fused/`, PDF |
 
 ---

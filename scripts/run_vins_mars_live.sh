@@ -6,7 +6,8 @@
 #
 #   ./run_vins_mars_live.sh [rate] [start_sec] [--play] [duration_sec] [--no-rtk] [--no-echo-odom]
 #
-#   --no-rtk         не публиковать RTK в RViz (только чистый VINS)
+#   --no-rtk         не публиковать RTK в RViz (это значение по умолчанию)
+#   --rtk            красный /mars/rtk_path только для глаз, не коррекция
 #   --no-echo-odom   не открывать терминал rostopic echo /vins_estimator/odometry
 #
 # Окно odom справа в демо VINS-Mono — это сырой выход estimators, без RTK fusion.
@@ -23,13 +24,14 @@ RATE="0.3"
 START="50"
 PLAY=0
 DURATION=""
-RTK=1
+RTK=0
 ECHO_ODOM=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --play) PLAY=1; shift ;;
         --no-rtk) RTK=0; shift ;;
+        --rtk) RTK=1; shift ;;
         --no-echo-odom) ECHO_ODOM=0; shift ;;
         -h|--help)
             sed -n '2,20p' "$0"
@@ -55,7 +57,7 @@ RES="$VNAV_ROOT/results"
 vnav_setup_ros
 
 [[ -f "$BAG" ]] || { echo "Нет bag: $BAG"; exit 1; }
-[[ -f "$GT" ]] || { echo "Нет RTK: $GT"; exit 1; }
+[[ -f "$GT" ]] || { echo "Нет эталона $GT (нужен только для RViz --rtk)"; [[ "$RTK" -eq 1 ]] && exit 1; }
 [[ -f "$RVIZ_CFG" ]] || { echo "Нет $RVIZ_CFG"; exit 1; }
 [[ -f "$CFG" ]] || {
     mkdir -p "$(dirname "$CFG")"
