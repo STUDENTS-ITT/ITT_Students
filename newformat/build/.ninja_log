@@ -1,0 +1,15 @@
+# ninja log v7
+9	1109	8114306699967586	CMakeFiles/imitator.dir/src/data_io/data_writer.cpp.obj	508e8893211ef8d8
+11	1769	8114370225054338	CMakeFiles/imitator.dir/src/data_io/data_reader.cpp.obj	7a6509997beb1e74
+9	2250	8114370225044498	CMakeFiles/imitator.dir/src/navigation/Aligner.cpp.obj	c47d982e47d86efe
+7	4294	8114370225014438	CMakeFiles/imitator.dir/src/main.cpp.obj	26c98462ebd5b597
+4294	4436	8114370267893343	imitator.exe	ae77cac10fbc60c3
+3	124	8114373069033843	build.ninja	8730a98f327ecb5
+3	124	8114373069033843	C:/Users/ORNK/Downloads/ITT_Students-Testing_branch/ITT_Students-Testing_branch/newformat/build/cmake_install.cmake	8730a98f327ecb5
+11	1572	8114373069399754	CMakeFiles/imitator.dir/src/data_io/data_writer.cpp.obj	508e8893211ef8d8
+10	1968	8114373069386741	CMakeFiles/imitator.dir/src/data_io/data_reader.cpp.obj	7a6509997beb1e74
+8	2453	8114373069374252	CMakeFiles/imitator.dir/src/navigation/Aligner.cpp.obj	c47d982e47d86efe
+7	4495	8114373069359117	CMakeFiles/imitator.dir/src/main.cpp.obj	26c98462ebd5b597
+4495	4640	8114373114235346	imitator.exe	ae77cac10fbc60c3
+7	997	8114375038255417	CMakeFiles/imitator.dir/src/data_io/data_writer.cpp.obj	508e8893211ef8d8
+997	1144	8114375048152915	imitator.exe	ae77cac10fbc60c3

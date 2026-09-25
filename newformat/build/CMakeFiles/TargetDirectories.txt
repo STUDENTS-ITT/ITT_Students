@@ -1,0 +1,3 @@
+C:/Users/ORNK/Downloads/ITT_Students-Testing_branch/ITT_Students-Testing_branch/newformat/build/CMakeFiles/imitator.dir
+C:/Users/ORNK/Downloads/ITT_Students-Testing_branch/ITT_Students-Testing_branch/newformat/build/CMakeFiles/edit_cache.dir
+C:/Users/ORNK/Downloads/ITT_Students-Testing_branch/ITT_Students-Testing_branch/newformat/build/CMakeFiles/rebuild_cache.dir
