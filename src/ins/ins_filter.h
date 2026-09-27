@@ -29,15 +29,33 @@ namespace ins
 constexpr int KF_STATE = 15;
 constexpr int KF_MEAS = 9;
 
+// Настройки шумов фильтра (переопределяются из params.ini при подборе).
+struct KalmanConfig
+{
+    double sig_g   = 2.12428e-02;           // шум гироскопа, рад/√с (run_hk №6)
+    double sig_a   = 1.5276e+00;            // шум акселерометра, м/с²/√с (run_hk №6)
+    double sig_bg  = 1.05526e-05;           // дрейф смещения гироскопа, рад/с/√с (run_hk №6)
+    double sig_ba  = 1.10162e-05;           // дрейф смещения акселерометра, м/с²/√с (run_hk №6)
+    double sig_pos = 2.64401e-08;           // СНС позиция, рад (run_hk №6)
+    double sig_h   = 5.0;                   // СНС высота, м
+    double sig_v   = 4.81061e-02;           // СНС скорость, м/с (run_hk №6)
+    double sig_hdg = 1.23106e-03;           // СНС курс, рад (run_hk №6)
+    double outage_start_s = 0.0;             // начало окна без коррекций СНС, с
+    double outage_end_s = 0.0;               // конец окна без коррекций СНС, с (0 — выкл)
+};
+
+// Глобальная (настраиваемая) конфигурация шумов.
+inline KalmanConfig kalman_cfg;
+
 // Матрица шума процесса Q (диагональная, по моделям дрейфа).
 // σ_g, σ_a — шумы гироскопа и акселерометра;
 // σ_bg, σ_ba — дрейфы смещений гироскопа и акселерометра.
 inline Matrix Qj_matrix(double T)
 {
-    const double sig_g = 3.394e-4;   // шум гироскопа, рад/√с
-    const double sig_a = 3.05e-3;    // шум акселерометра, м/с²/√с
-    const double sig_bg = 1.16e-5;   // дрейф смещения гироскопа, рад/с/√с
-    const double sig_ba = 2e-5;      // дрейф смещения акселерометра, м/с²/√с
+    const double sig_g = kalman_cfg.sig_g;
+    const double sig_a = kalman_cfg.sig_a;
+    const double sig_bg = kalman_cfg.sig_bg;
+    const double sig_ba = kalman_cfg.sig_ba;
 
     const double q_v = sig_a * sig_a * T;
     const double q_att = sig_g * sig_g * T;
@@ -63,9 +81,9 @@ inline Matrix Qj_matrix(double T)
 // Углы: курс — из СНС (sig_hdg), крен/тангаж — из акселя (sig_pitch, sig_roll).
 inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
 {
-    const double sig_pos = 5.0 / R_EARTH;   // позиция в радианах
-    const double sig_h = 5.0;               // высота, м
-    const double sig_v = 0.1;               // скорость, м/с
+    const double sig_pos = kalman_cfg.sig_pos;   // позиция в радианах
+    const double sig_h = kalman_cfg.sig_h;       // высота, м
+    const double sig_v = kalman_cfg.sig_v;       // скорость, м/с
 
     Matrix Rj(KF_MEAS * KF_MEAS, 0);
     const double rdiag[KF_MEAS] = {
@@ -207,10 +225,20 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
     innov[8] = normalize_angle(innov[8]);
     x = vector_sum(x, multiply_m(Kj, innov, KF_MEAS));
 
-    // Коррекция ковариации: P = (I − K·H)·P.
+    // Коррекция ковариации в устойчивой Joseph-форме:
+    //   P = (I − K·H)·P·(I − K·H)ᵀ + K·R·Kᵀ.
+    // Симметрична по построению и сохраняет положительную полуопределённость
+    // (в отличие от упрощённой (I − K·H)·P, где вычитания теряют симметрию
+    // и могут давать отрицательные диагонали).
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
-    P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
+    const Matrix E_KH_T = transpose_m(E_KH, KF_STATE);
+    const Matrix Rj = Rj_matrix(sig_hdg, sig_pitch, sig_roll);
+    const Matrix KR = multiply_matrix(Kj, Rj, KF_MEAS, KF_MEAS);
+    P = matrix_sum(
+        multiply_matrix(multiply_matrix(E_KH, P, KF_STATE, KF_STATE), E_KH_T, KF_STATE, KF_STATE),
+        multiply_matrix(KR, transpose_m(Kj, KF_MEAS), KF_MEAS, KF_STATE),
+        KF_STATE);
 }
 
 // Размерность вектора измерений для коррекции только по тангажу/крену.
@@ -249,7 +277,16 @@ inline void correctTilt(double pitch_bins, double roll_bins,
         multiply_matrix(multiply_matrix(H, P, KF_STATE, KF_STATE), HT, KF_STATE, KF_TILT_MEAS),
         R_tilt_matrix(sig_pitch, sig_roll), KF_TILT_MEAS);
 
-    const Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_TILT_MEAS), KF_TILT_MEAS, KF_TILT_MEAS);
+    Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_TILT_MEAS), KF_TILT_MEAS, KF_TILT_MEAS);
+
+    // Развязка tilt-контура от координат/скорости/курса (П2):
+    // акселерометрическая коррекция должна трогать только ошибки углов и
+    // смещений датчиков (x[7..14]).  Строки K для x[0..6] обнуляем, чтобы
+    // корреляционные члены P·Hᵀ не «протекали» в непогашенные ошибки
+    // pos/vel/hdg, которые живут между кадрами СНС.
+    for (int r = 0; r < 7; r++)
+        for (int c = 0; c < KF_TILT_MEAS; c++)
+            at(K, r, c, KF_TILT_MEAS) = 0.0;
 
     Vector innov = vector_diff(z, multiply_m(H, x, KF_STATE));
     innov[0] = normalize_angle(innov[0]);
@@ -257,11 +294,56 @@ inline void correctTilt(double pitch_bins, double roll_bins,
 
     x = vector_sum(x, multiply_m(K, innov, KF_TILT_MEAS));
 
+    // Коррекция ковариации в Joseph-форме (см. correct): симметрична и
+    // сохраняет положительную полуопределённость P.
     const Matrix E_KH = matrix_diff(
         E_matrix(KF_STATE),
         multiply_matrix(K, H, KF_TILT_MEAS, KF_STATE),
         KF_STATE);
-    P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);
+    const Matrix E_KH_T = transpose_m(E_KH, KF_STATE);
+    const Matrix R_tilt = R_tilt_matrix(sig_pitch, sig_roll);
+    const Matrix KR = multiply_matrix(K, R_tilt, KF_TILT_MEAS, KF_TILT_MEAS);
+    P = matrix_sum(
+        multiply_matrix(multiply_matrix(E_KH, P, KF_STATE, KF_STATE), E_KH_T, KF_STATE, KF_STATE),
+        multiply_matrix(KR, transpose_m(K, KF_TILT_MEAS), KF_TILT_MEAS, KF_STATE),
+        KF_STATE);
+}
+
+// Согласование ковариации после ESKF-reset (inject + zero δx).
+//
+// В каноническом ESKF после инъекции ошибок в номинал ковариация обновляется:
+//   P ← G·P·Gᵀ,
+// где G — якобиан операции reset (Solà, 2017).
+// Для аддитивных групп (координаты, скорости, смещения датчиков)
+// композиция линейна и G = I.  Для Эйлеровых углов (additive, mod 2π,
+// с normalize_angle)
+// G = I при малых δx, что верно при любой корректной
+// выставке (рассинхронизация углов не превышает π/2).  Практический
+// вклад функции — числовое согласование P: predict и коррекции накапливают
+// ошибки округления, на недиагонали может потеряться симметрия, а на
+// диагонали появиться отрицательные дисперсии → раздуть K и «смонтировать»
+// режим копии СНС.
+inline void apply_reset_covariance(Matrix &P)
+{
+    const int n = KF_STATE;
+
+    // 1) Симметризация: P ← (P + Pᵀ)/2.
+    //    После predict/коррекций симметрия нарушается на ε ~ 10⁻¹⁵.
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++)
+        {
+            const double s = 0.5 * (at(P, i, j, n) + at(P, j, i, n));
+            at(P, i, j, n) = s;
+            at(P, j, i, n) = s;
+        }
+
+    // 2) Страховка диагонали: отрицательные дисперсии → 1e-15.
+    //    Источник: хвостовые вычитания в (I−KH)·P при малых σ.
+    for (int i = 0; i < n; i++)
+    {
+        if (at(P, i, i, n) < 0.0)
+            at(P, i, i, n) = 1e-15;
+    }
 }
 
 } // namespace ins

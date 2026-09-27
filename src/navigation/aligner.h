@@ -18,23 +18,26 @@
 namespace nav
 {
 
-// Начальная ковариационная матрица P₀ (диагональная).
-inline Matrix initialCovariance()
+// Начальная ковариационная матрица P₀ (диагональная).
+// C11: P0 больше не захардкожен — калибруется по настроенным σ из kalman_cfg:
+//   pos = 2·σ_pos, alt = 2·σ_h, а курс = σ_bg / Ω_h (неснимаемое смещение гиро
+//   искажает проекцию скорости вращения Земли, Ω_h = ω_E·cos(lat)), т.е. курс
+//   определяется точностью курсовой выставки, а не свободным масштабом.
+inline Matrix initialCovariance(double lat_rad)
 {
-    const double p_pos = (50.0 / R_EARTH) * (50.0 / R_EARTH);
-    const double p_h = 10.0;
-    const double p_v = 2.5;
-    const double p_hdg = (15.0 * DEG_TO_RAD) * (15.0 * DEG_TO_RAD);
-    const double p_tilt = (1.0 * DEG_TO_RAD) * (1.0 * DEG_TO_RAD);
-    const double p_ba = 9e-6;
-    const double p_bg = 1e-8;
+    const double sigma[ins::KF_STATE] = {
+        2.0 * ins::kalman_cfg.sig_pos, 2.0 * ins::kalman_cfg.sig_pos, 2.0 * ins::kalman_cfg.sig_h,
+        2.5, 2.5, 2.5,
+        ins::kalman_cfg.sig_bg / fmax(fabs(cos(lat_rad)) * U_EARTH, 1e-10), 1.0 * DEG_TO_RAD, 1.0 * DEG_TO_RAD,
+        3e-3, 3e-3, 3e-3,
+        1e-4, 1e-4, 1e-4};
 
     const double pdiag[ins::KF_STATE] = {
-        p_pos, p_pos, p_h,
-        p_v, p_v, p_v,
-        p_hdg, p_tilt, p_tilt,
-        p_ba, p_ba, p_ba,
-        p_bg, p_bg, p_bg};
+        sigma[0] * sigma[0], sigma[1] * sigma[1], sigma[2] * sigma[2],
+        sigma[3] * sigma[3], sigma[4] * sigma[4], sigma[5] * sigma[5],
+        sigma[6] * sigma[6], sigma[7] * sigma[7], sigma[8] * sigma[8],
+        sigma[9] * sigma[9], sigma[10] * sigma[10], sigma[11] * sigma[11],
+        sigma[12] * sigma[12], sigma[13] * sigma[13], sigma[14] * sigma[14]};
 
     Matrix P0(ins::KF_STATE * ins::KF_STATE, 0);
     for (int i = 0; i < ins::KF_STATE; i++)
@@ -60,7 +63,7 @@ inline NavState initialAlignment(const SnsSample &first, const ins::Attitude &at
     st.lon = first.lon;
     st.alt = first.alt;
     st.V = {first.vn, first.vh, first.ve};
-    st.P = initialCovariance();
+    st.P = initialCovariance(st.lat);
     return st;
 }
 
@@ -88,7 +91,7 @@ inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
     st.V = {0.0, 0.0, 0.0};
     st.ba = ba_init;
     st.bg = {0.0, 0.0, 0.0};
-    st.P = initialCovariance();
+    st.P = initialCovariance(st.lat);
     return st;
 }
 

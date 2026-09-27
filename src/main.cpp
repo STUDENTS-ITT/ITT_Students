@@ -30,6 +30,64 @@
 namespace
 {
 
+// Ключи params.ini → поля KalmanConfig.
+void applyParamsFile(const std::string &path)
+{
+    std::ifstream f(path);
+    if (!f.is_open())
+    {
+        std::cerr << "params.ini: cannot open " << path << std::endl;
+        return;
+    }
+
+    struct Entry { const char *name; double *field; };
+    const Entry entries[] = {
+        {"sigma_g", &ins::kalman_cfg.sig_g},
+        {"sigma_a", &ins::kalman_cfg.sig_a},
+        {"sigma_bg", &ins::kalman_cfg.sig_bg},
+        {"sigma_ba", &ins::kalman_cfg.sig_ba},
+        {"sigma_pos", &ins::kalman_cfg.sig_pos},
+        {"sigma_v", &ins::kalman_cfg.sig_v},
+        {"sigma_ang", &ins::kalman_cfg.sig_hdg},
+        {"outage_start_s", &ins::kalman_cfg.outage_start_s},
+        {"outage_end_s", &ins::kalman_cfg.outage_end_s},
+    };
+
+    std::string line;
+    while (std::getline(f, line))
+    {
+        // Пропускаем пустые строки и комментарии.
+        std::string key, val;
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        key = line.substr(0, eq);
+        val = line.substr(eq + 1);
+
+        // Обрезаем пробелы.
+        while (!key.empty() && key.back() == ' ') key.pop_back();
+        while (!val.empty() && val.front() == ' ') val.erase(val.begin());
+        while (!val.empty() && val.back() == ' ') val.pop_back();
+        if (key.empty() || val.empty()) continue;
+
+        for (const auto &e : entries)
+        {
+            if (key == e.name)
+            {
+                *e.field = std::stod(val);
+                break;
+            }
+        }
+    }
+
+    std::cout << "params.ini: sigma_g=" << ins::kalman_cfg.sig_g
+              << " sigma_a=" << ins::kalman_cfg.sig_a
+              << " sigma_bg=" << ins::kalman_cfg.sig_bg
+              << " sigma_ba=" << ins::kalman_cfg.sig_ba
+              << " sigma_pos=" << ins::kalman_cfg.sig_pos
+              << " sigma_v=" << ins::kalman_cfg.sig_v
+              << " sigma_ang=" << ins::kalman_cfg.sig_hdg << std::endl;
+}
+
 bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, double &alt, double &time_s)
 {
     std::ifstream f(path);
@@ -59,7 +117,13 @@ bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg, d
 
 int main(int argc, char **argv)
 {
-    const std::string data_dir = "../data/raw";
+    // argv[1] — каталог данных (по умолчанию ../data/raw), argv[2] — params.ini.
+    const std::string data_dir = (argc > 1) ? argv[1] : "../data/raw";
+
+    if (argc > 2)
+    {
+        applyParamsFile(argv[2]);
+    }
 
     const std::filesystem::path tools_dir = utils::toolsDir(argv[0]);
     const std::string result_file = (tools_dir / "result.txt").string();
@@ -180,7 +244,17 @@ int main(int argc, char **argv)
             continue;
         }
 
-        const bool do_correction = (hold_ref.time != prev_gps_time);
+        const bool in_outage = (ins::kalman_cfg.outage_end_s > ins::kalman_cfg.outage_start_s) &&
+                               (imu_time >= ins::kalman_cfg.outage_start_s) &&
+                               (imu_time <= ins::kalman_cfg.outage_end_s);
+
+        // Во время «потери СНС» коррекции не применяются (проверка свободного счисления).
+        const bool do_correction = !in_outage && (hold_ref.time != prev_gps_time);
+
+        if (in_outage)
+        {
+            ref = hold_ref;
+        }
 
         ref = hold_ref;
         nav::step(row, ref, state, log, do_correction, has_angle);

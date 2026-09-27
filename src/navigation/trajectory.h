@@ -161,6 +161,10 @@ inline void applyTiltKalmanCorrections(NavState &st)
     }
     for (int k = 7; k < ins::KF_STATE; k++)
         st.x[k] = 0.0;
+
+    // ESKF-reset ковариации: G·P·Gᵀ (G=I для аддитивных групп),
+    // плюс симметризация и страховка диагонали.
+    ins::apply_reset_covariance(st.P);
 }
 
 // Полное применение коррекции KF (кадр СНС, 1 Гц).
@@ -182,6 +186,10 @@ inline void applyKalmanCorrections(NavState &st)
     }
     for (int k = 0; k < ins::KF_STATE; k++)
         st.x[k] = 0.0;
+
+    // ESKF-reset ковариации: G·P·Gᵀ (G=I для аддитивных групп),
+    // плюс симметризация и страховка диагонали.
+    ins::apply_reset_covariance(st.P);
 }
 
 // Один такт счисления БИНС.
@@ -202,11 +210,10 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     // Матрица направляющих косинусов СК тела → навигационная СК.
     const Matrix C = bodyToNavMatrix(st.att.heading, st.att.pitch, st.att.roll);
 
-    // Ускорение в навигационной СК: f_н = C_б^н · (f_б − ba)
-    const Vector n_nav = bodyToNav(C, ins::accel(row, st.ba));
-
-    // Предсказание фильтра Калмана: x = F·x, P = F·P·F^T + Q
-    ins::predict(dt, st.lat, st.alt, C, n_nav, st.att, st.x, st.P);
+    // Ускорение тела (компенсированное смещением ba) и в навигационной СК:
+    // f_н = C_б^н · (f_б − ba).
+    const Vector f_body = ins::accel(row, st.ba);
+    const Vector n_nav = bodyToNav(C, f_body);
 
     // Интегрирование скоростей (с вредными ускорениями).
     const Vector a_harm = harmfulAccel(st.lat, st.alt, st.V, st.lat_dot_prev, st.lon_dot_prev);
@@ -217,7 +224,6 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     const Position pos = integratePosition(st.lat, st.lon, st.alt, V,
                                            st.lat_dot_prev, st.lon_dot_prev, st.alt_dot_prev, dt);
 
-    const Vector f_body = ins::accel(row, st.ba);
     const Vector V_dot_body = navToBody(C, V_dot);
     const Vector gyro_raw = ins::gyro(row, st.bg);
     const double gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] +
@@ -257,6 +263,15 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
 
     trimManeuverTilt(st.att, st.tilt_trim, f_body, gyro_mag, V_dot_body, dt, TILT_POL);
 
+    // Предсказание фильтра Калмана (П5): после интегрирования номинала за такт
+    // (включая trim углов) — по свежему состоянию. Раньше predict шёл по состоянию
+    // прошлого такта (до интеграции), что давало систематический сдвиг на dt между
+    // predict и коррекцией, где инновация считается против только что
+    // проинтегрированного номинала.
+    const Matrix C_cur = bodyToNavMatrix(st.att.heading, st.att.pitch, st.att.roll);
+    const Vector n_nav_cur = bodyToNav(C_cur, f_body);
+    ins::predict(dt, st.lat, st.alt, C_cur, n_nav_cur, st.att, st.x, st.P);
+
     if (shouldApplyAccelTilt(time_s, st.tilt_maneuver_time, gyro_mag,
                              acc_att.ok, acc_att.pitch, acc_att.roll,
                              V_dot_body, st.att, rates, TILT_POL))
@@ -285,7 +300,7 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
                             has_heading_ref ? ref.heading : st.att.heading,
                             st.att.pitch, st.att.roll};
 
-        const double SIG_HDG = 1.0 * DEG_TO_RAD;
+        const double SIG_HDG = ins::kalman_cfg.sig_hdg;
         const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;
 
         ins::correct(bins, sns, st.x, st.P, SIG_HDG, SIG_TILT_IGNORE, SIG_TILT_IGNORE);
