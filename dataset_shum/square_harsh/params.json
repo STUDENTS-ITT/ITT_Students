@@ -1,0 +1,196 @@
+{
+  "name": "square_harsh",
+  "note": "Геометрия как в square_650, но грубый ИМУ (ДУС 8e-3 рад/с, смещение 150 °/ч), СНС 5 м по горизонту и 8 м по высоте, пропуски отсчётов 2 %. Проверка робастности.",
+  "duration_s": 662.0,
+  "rows": {
+    "imu": 124773,
+    "gps": 6619,
+    "angle": 6619
+  },
+  "rate_hz": {
+    "imu": 200.0,
+    "sns": 10.0
+  },
+  "start": {
+    "lat_deg": 47.641467922824795,
+    "lon_deg": -122.140165131201,
+    "alt_m": 116.975,
+    "heading_deg": 5.0,
+    "align_time_s": 120.0
+  },
+  "profile": [
+    {
+      "dur_s": 180.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    },
+    {
+      "dur_s": 100.0,
+      "v_ms": 0.0,
+      "v_up_ms": 1.0,
+      "turn_deg_s": 0.0,
+      "note": "набор высоты 1 м/с"
+    },
+    {
+      "dur_s": 5.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "висение"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на север"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на восток"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на восток"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на юг"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на юг"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на запад"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на запад"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на север"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 0.0,
+      "v_up_ms": -1.0,
+      "turn_deg_s": 0.0,
+      "note": "спуск"
+    },
+    {
+      "dur_s": 5.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    }
+  ],
+  "noise": {
+    "gyro_sigma": 0.008,
+    "gyro_bias_deg_h": [
+      150.0,
+      -120.0,
+      90.0
+    ],
+    "gyro_bias_rw_deg_h_sqrt_s": 1.5,
+    "accel_sigma": 0.15,
+    "accel_bias_mg": [
+      8.0,
+      -6.0,
+      5.0
+    ],
+    "accel_bias_rw_mg_sqrt_s": 0.05,
+    "gps_pos_h_sigma": 5.0,
+    "gps_pos_v_sigma": 8.0,
+    "gps_vel_sigma": 0.5,
+    "gps_pos_offset": [
+      1.5,
+      -2.0,
+      1.0
+    ],
+    "gps_pos_corr_sigma": 3.0,
+    "gps_pos_corr_tau_s": 120.0,
+    "angle_sigma_deg": [
+      0.5,
+      0.5,
+      1.0
+    ],
+    "imu_jitter_s": 0.005,
+    "imu_dropout_p": 0.02,
+    "sns_jitter_s": 0.015
+  },
+  "noise_si": {
+    "gyro_bias_rad_s": [
+      0.000727220521664304,
+      -0.0005817764173314432,
+      0.0004363323129985824
+    ],
+    "accel_bias_m_s2": [
+      0.0784532,
+      -0.0588399,
+      0.04903325
+    ],
+    "gyro_bias_rw_rad_s_per_sqrt_s": 7.27220521664304e-06,
+    "accel_bias_rw_m_s2_per_sqrt_s": 0.0004903325000000001,
+    "angle_sigma_rad": [
+      0.008726646259971648,
+      0.008726646259971648,
+      0.017453292519943295
+    ]
+  },
+  "realized_noise": {
+    "gyro_rms_rad_s": [
+      0.00804505992101725,
+      0.008027702262169846,
+      0.007985549568800593
+    ],
+    "accel_rms_m_s2": [
+      0.16249726066463752,
+      0.16221689596964478,
+      0.1544896740592757
+    ]
+  },
+  "seed": 105,
+  "units": {
+    "imu": "time_s [с], timestamp_ns [нс], wx/wy/wz [рад/с], ax/ay/az [м/с²]",
+    "gps": "latitude/longitude [град], altitude [м], vx/vy/vz = Vn/Vup/Ve [м/с]",
+    "angle": "roll/pitch/yaw [рад]",
+    "truth": "как reference.txt: time lon lat alt heading pitch roll vn vh ve, углы в градусах"
+  },
+  "frames": "нав. СК (Север, Вверх, Восток); тело: X вперёд, Y вверх, Z вправо; курс от Севера по часовой",
+  "consistency_check": {
+    "note": "счисление по чистому ИМУ без коррекции, отклонение от истины",
+    "max_horizontal_m": 23.1333,
+    "rms_horizontal_m": 7.5643,
+    "max_alt_m": 0.0248,
+    "max_vel_m_s": 0.12415,
+    "max_angle_deg": 0.00289
+  },
+  "short": "Тот же квадрат с грубым ИМУ и пропусками отсчётов"
+}

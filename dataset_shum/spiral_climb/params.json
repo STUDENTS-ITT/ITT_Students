@@ -1,0 +1,147 @@
+{
+  "name": "spiral_climb",
+  "note": "Стоянка 150 с, разгон до 6 м/с, спираль вверх (разворот 6 °/с, набор 1.5 м/с, +270 м), выход и торможение. Связка вертикального канала с разворотом.",
+  "duration_s": 400.0,
+  "rows": {
+    "imu": 79343,
+    "gps": 3999,
+    "angle": 3999
+  },
+  "rate_hz": {
+    "imu": 200.0,
+    "sns": 10.0
+  },
+  "start": {
+    "lat_deg": 47.641467922824795,
+    "lon_deg": -122.140165131201,
+    "alt_m": 116.975,
+    "heading_deg": 180.0,
+    "align_time_s": 120.0
+  },
+  "profile": [
+    {
+      "dur_s": 150.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 6.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "разгон до 6 м/с"
+    },
+    {
+      "dur_s": 180.0,
+      "v_ms": 6.0,
+      "v_up_ms": 1.5,
+      "turn_deg_s": 6.0,
+      "note": "спираль вверх"
+    },
+    {
+      "dur_s": 30.0,
+      "v_ms": 6.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "выход, полёт по прямой"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "торможение"
+    },
+    {
+      "dur_s": 10.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    }
+  ],
+  "noise": {
+    "gyro_sigma": 0.0016,
+    "gyro_bias_deg_h": [
+      40.0,
+      -30.0,
+      25.0
+    ],
+    "gyro_bias_rw_deg_h_sqrt_s": 0.5,
+    "accel_sigma": 0.043,
+    "accel_bias_mg": [
+      4.0,
+      3.0,
+      -3.0
+    ],
+    "accel_bias_rw_mg_sqrt_s": 0.0,
+    "gps_pos_h_sigma": 1.5,
+    "gps_pos_v_sigma": 2.5,
+    "gps_vel_sigma": 0.05,
+    "gps_pos_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gps_pos_corr_sigma": 0.0,
+    "gps_pos_corr_tau_s": 90.0,
+    "angle_sigma_deg": [
+      0.05,
+      0.05,
+      0.2
+    ],
+    "imu_jitter_s": 0.0015,
+    "imu_dropout_p": 0.003,
+    "sns_jitter_s": 0.006
+  },
+  "noise_si": {
+    "gyro_bias_rad_s": [
+      0.0001939254724438144,
+      -0.0001454441043328608,
+      0.00012120342027738399
+    ],
+    "accel_bias_m_s2": [
+      0.0392266,
+      0.02941995,
+      -0.02941995
+    ],
+    "gyro_bias_rw_rad_s_per_sqrt_s": 2.42406840554768e-06,
+    "accel_bias_rw_m_s2_per_sqrt_s": 0.0,
+    "angle_sigma_rad": [
+      0.0008726646259971648,
+      0.0008726646259971648,
+      0.003490658503988659
+    ]
+  },
+  "realized_noise": {
+    "gyro_rms_rad_s": [
+      0.0016168944914221272,
+      0.001608499313116063,
+      0.0016129306893606363
+    ],
+    "accel_rms_m_s2": [
+      0.05841119154539564,
+      0.05201602207600492,
+      0.052260978756062525
+    ]
+  },
+  "seed": 108,
+  "units": {
+    "imu": "time_s [с], timestamp_ns [нс], wx/wy/wz [рад/с], ax/ay/az [м/с²]",
+    "gps": "latitude/longitude [град], altitude [м], vx/vy/vz = Vn/Vup/Ve [м/с]",
+    "angle": "roll/pitch/yaw [рад]",
+    "truth": "как reference.txt: time lon lat alt heading pitch roll vn vh ve, углы в градусах"
+  },
+  "frames": "нав. СК (Север, Вверх, Восток); тело: X вперёд, Y вверх, Z вправо; курс от Севера по часовой",
+  "consistency_check": {
+    "note": "счисление по чистому ИМУ без коррекции, отклонение от истины",
+    "max_horizontal_m": 4.7157,
+    "rms_horizontal_m": 1.661,
+    "max_alt_m": 0.0166,
+    "max_vel_m_s": 0.033,
+    "max_angle_deg": 0.00121
+  },
+  "short": "Спираль вверх: разворот вместе с набором высоты"
+}

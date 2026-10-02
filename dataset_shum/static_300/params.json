@@ -1,0 +1,112 @@
+{
+  "name": "static_300",
+  "note": "Стоянка 300 с. Уровень шума как в исходном датасете, заданы смещения ba и bg. Проверка начальной выставки, оценки ba и стабильности фильтра без движения.",
+  "duration_s": 300.0,
+  "rows": {
+    "imu": 59443,
+    "gps": 2999,
+    "angle": 2999
+  },
+  "rate_hz": {
+    "imu": 200.0,
+    "sns": 10.0
+  },
+  "start": {
+    "lat_deg": 47.641467922824795,
+    "lon_deg": -122.140165131201,
+    "alt_m": 116.975,
+    "heading_deg": 5.0,
+    "align_time_s": 120.0
+  },
+  "profile": [
+    {
+      "dur_s": 300.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    }
+  ],
+  "noise": {
+    "gyro_sigma": 0.0016,
+    "gyro_bias_deg_h": [
+      30.0,
+      -20.0,
+      15.0
+    ],
+    "gyro_bias_rw_deg_h_sqrt_s": 0.0,
+    "accel_sigma": 0.043,
+    "accel_bias_mg": [
+      2.0,
+      -3.0,
+      1.5
+    ],
+    "accel_bias_rw_mg_sqrt_s": 0.0,
+    "gps_pos_h_sigma": 1.5,
+    "gps_pos_v_sigma": 2.5,
+    "gps_vel_sigma": 0.05,
+    "gps_pos_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gps_pos_corr_sigma": 0.0,
+    "gps_pos_corr_tau_s": 90.0,
+    "angle_sigma_deg": [
+      0.05,
+      0.05,
+      0.2
+    ],
+    "imu_jitter_s": 0.0015,
+    "imu_dropout_p": 0.003,
+    "sns_jitter_s": 0.006
+  },
+  "noise_si": {
+    "gyro_bias_rad_s": [
+      0.0001454441043328608,
+      -9.69627362219072e-05,
+      7.27220521664304e-05
+    ],
+    "accel_bias_m_s2": [
+      0.0196133,
+      -0.02941995,
+      0.014709975
+    ],
+    "gyro_bias_rw_rad_s_per_sqrt_s": 0.0,
+    "accel_bias_rw_m_s2_per_sqrt_s": 0.0,
+    "angle_sigma_rad": [
+      0.0008726646259971648,
+      0.0008726646259971648,
+      0.003490658503988659
+    ]
+  },
+  "realized_noise": {
+    "gyro_rms_rad_s": [
+      0.0016097990428736847,
+      0.0016055617688913466,
+      0.0015973235266643268
+    ],
+    "accel_rms_m_s2": [
+      0.04687766458334784,
+      0.0521055199200329,
+      0.0454482493559284
+    ]
+  },
+  "seed": 101,
+  "units": {
+    "imu": "time_s [с], timestamp_ns [нс], wx/wy/wz [рад/с], ax/ay/az [м/с²]",
+    "gps": "latitude/longitude [град], altitude [м], vx/vy/vz = Vn/Vup/Ve [м/с]",
+    "angle": "roll/pitch/yaw [рад]",
+    "truth": "как reference.txt: time lon lat alt heading pitch roll vn vh ve, углы в градусах"
+  },
+  "frames": "нав. СК (Север, Вверх, Восток); тело: X вперёд, Y вверх, Z вправо; курс от Севера по часовой",
+  "consistency_check": {
+    "note": "счисление по чистому ИМУ без коррекции, отклонение от истины",
+    "max_horizontal_m": 0.0,
+    "rms_horizontal_m": 0.0,
+    "max_alt_m": 0.0,
+    "max_vel_m_s": 0.0,
+    "max_angle_deg": 0.0
+  },
+  "short": "Стоянка, шум как в исходных данных"
+}

@@ -1,0 +1,196 @@
+{
+  "name": "square_noisefree",
+  "note": "Геометрия как в square_650, но шум и дрожание времени полностью отключены (строго 200/10 Гц). Опорный набор для проверки самого алгоритма счисления.",
+  "duration_s": 662.0,
+  "rows": {
+    "imu": 132400,
+    "gps": 6619,
+    "angle": 6619
+  },
+  "rate_hz": {
+    "imu": 200.0,
+    "sns": 10.0
+  },
+  "start": {
+    "lat_deg": 47.641467922824795,
+    "lon_deg": -122.140165131201,
+    "alt_m": 116.975,
+    "heading_deg": 5.0,
+    "align_time_s": 120.0
+  },
+  "profile": [
+    {
+      "dur_s": 180.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    },
+    {
+      "dur_s": 100.0,
+      "v_ms": 0.0,
+      "v_up_ms": 1.0,
+      "turn_deg_s": 0.0,
+      "note": "набор высоты 1 м/с"
+    },
+    {
+      "dur_s": 5.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "висение"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на север"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на восток"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на восток"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на юг"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на юг"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на запад"
+    },
+    {
+      "dur_s": 80.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "участок на запад"
+    },
+    {
+      "dur_s": 8.0,
+      "v_ms": 2.95,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 11.25,
+      "note": "разворот на север"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 0.0,
+      "v_up_ms": -1.0,
+      "turn_deg_s": 0.0,
+      "note": "спуск"
+    },
+    {
+      "dur_s": 5.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    }
+  ],
+  "noise": {
+    "gyro_sigma": 0.0,
+    "gyro_bias_deg_h": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gyro_bias_rw_deg_h_sqrt_s": 0.0,
+    "accel_sigma": 0.0,
+    "accel_bias_mg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "accel_bias_rw_mg_sqrt_s": 0.0,
+    "gps_pos_h_sigma": 0.0,
+    "gps_pos_v_sigma": 0.0,
+    "gps_vel_sigma": 0.0,
+    "gps_pos_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gps_pos_corr_sigma": 0.0,
+    "gps_pos_corr_tau_s": 90.0,
+    "angle_sigma_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "imu_jitter_s": 0.0,
+    "imu_dropout_p": 0.0,
+    "sns_jitter_s": 0.0
+  },
+  "noise_si": {
+    "gyro_bias_rad_s": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "accel_bias_m_s2": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gyro_bias_rw_rad_s_per_sqrt_s": 0.0,
+    "accel_bias_rw_m_s2_per_sqrt_s": 0.0,
+    "angle_sigma_rad": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "realized_noise": {
+    "gyro_rms_rad_s": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "accel_rms_m_s2": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "seed": 104,
+  "units": {
+    "imu": "time_s [с], timestamp_ns [нс], wx/wy/wz [рад/с], ax/ay/az [м/с²]",
+    "gps": "latitude/longitude [град], altitude [м], vx/vy/vz = Vn/Vup/Ve [м/с]",
+    "angle": "roll/pitch/yaw [рад]",
+    "truth": "как reference.txt: time lon lat alt heading pitch roll vn vh ve, углы в градусах"
+  },
+  "frames": "нав. СК (Север, Вверх, Восток); тело: X вперёд, Y вверх, Z вправо; курс от Севера по часовой",
+  "consistency_check": {
+    "note": "счисление по чистому ИМУ без коррекции, отклонение от истины",
+    "max_horizontal_m": 5.669,
+    "rms_horizontal_m": 1.7474,
+    "max_alt_m": 0.0057,
+    "max_vel_m_s": 0.03549,
+    "max_angle_deg": 0.00147
+  },
+  "short": "Тот же квадрат без шума и дрожания времени"
+}

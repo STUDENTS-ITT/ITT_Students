@@ -1,0 +1,189 @@
+{
+  "name": "high_dynamics",
+  "note": "Широта 60°, стоянка 120 с, затем змейка на 15 м/с (развороты ±15 °/с, крен ~23°), рывки скорости 15→5→15 м/с и вертикальные ±3 м/с. Проверка гейтинга коррекции по акселерометру на манёврах (порог по |ω| — 0.08 рад/с, то есть 4.6 °/с).",
+  "duration_s": 300.0,
+  "rows": {
+    "imu": 58156,
+    "gps": 2999,
+    "angle": 2999
+  },
+  "rate_hz": {
+    "imu": 200.0,
+    "sns": 10.0
+  },
+  "start": {
+    "lat_deg": 60.0,
+    "lon_deg": 30.3,
+    "alt_m": 80.0,
+    "heading_deg": 45.0,
+    "align_time_s": 100.0
+  },
+  "profile": [
+    {
+      "dur_s": 120.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    },
+    {
+      "dur_s": 10.0,
+      "v_ms": 15.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "разгон до 15 м/с"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 15.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 15.0,
+      "note": "разворот вправо 300°"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 5.0,
+      "v_up_ms": 3.0,
+      "turn_deg_s": 0.0,
+      "note": "торможение с набором 3 м/с"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 15.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": -15.0,
+      "note": "разворот влево 300°"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 15.0,
+      "v_up_ms": -3.0,
+      "turn_deg_s": 0.0,
+      "note": "снижение 3 м/с"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 15.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 15.0,
+      "note": "разворот вправо 300°"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 5.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "торможение"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 15.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": -15.0,
+      "note": "разворот влево 300°"
+    },
+    {
+      "dur_s": 15.0,
+      "v_ms": 15.0,
+      "v_up_ms": 2.0,
+      "turn_deg_s": 0.0,
+      "note": "набор 2 м/с"
+    },
+    {
+      "dur_s": 20.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "торможение"
+    },
+    {
+      "dur_s": 10.0,
+      "v_ms": 0.0,
+      "v_up_ms": 0.0,
+      "turn_deg_s": 0.0,
+      "note": "стоянка"
+    }
+  ],
+  "noise": {
+    "gyro_sigma": 0.003,
+    "gyro_bias_deg_h": [
+      60.0,
+      -45.0,
+      35.0
+    ],
+    "gyro_bias_rw_deg_h_sqrt_s": 1.0,
+    "accel_sigma": 0.08,
+    "accel_bias_mg": [
+      5.0,
+      -4.0,
+      3.0
+    ],
+    "accel_bias_rw_mg_sqrt_s": 0.02,
+    "gps_pos_h_sigma": 2.5,
+    "gps_pos_v_sigma": 4.0,
+    "gps_vel_sigma": 0.15,
+    "gps_pos_offset": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "gps_pos_corr_sigma": 1.5,
+    "gps_pos_corr_tau_s": 60.0,
+    "angle_sigma_deg": [
+      0.2,
+      0.2,
+      0.4
+    ],
+    "imu_jitter_s": 0.003,
+    "imu_dropout_p": 0.01,
+    "sns_jitter_s": 0.006
+  },
+  "noise_si": {
+    "gyro_bias_rad_s": [
+      0.0002908882086657216,
+      -0.0002181661564992912,
+      0.0001696847883883376
+    ],
+    "accel_bias_m_s2": [
+      0.04903325,
+      -0.0392266,
+      0.02941995
+    ],
+    "gyro_bias_rw_rad_s_per_sqrt_s": 4.84813681109536e-06,
+    "accel_bias_rw_m_s2_per_sqrt_s": 0.000196133,
+    "angle_sigma_rad": [
+      0.003490658503988659,
+      0.003490658503988659,
+      0.006981317007977318
+    ]
+  },
+  "realized_noise": {
+    "gyro_rms_rad_s": [
+      0.0030024239659883984,
+      0.0030089871735880535,
+      0.003004437293178091
+    ],
+    "accel_rms_m_s2": [
+      0.09379901703974822,
+      0.08823355813776067,
+      0.08595909908160068
+    ]
+  },
+  "seed": 109,
+  "units": {
+    "imu": "time_s [с], timestamp_ns [нс], wx/wy/wz [рад/с], ax/ay/az [м/с²]",
+    "gps": "latitude/longitude [град], altitude [м], vx/vy/vz = Vn/Vup/Ve [м/с]",
+    "angle": "roll/pitch/yaw [рад]",
+    "truth": "как reference.txt: time lon lat alt heading pitch roll vn vh ve, углы в градусах"
+  },
+  "frames": "нав. СК (Север, Вверх, Восток); тело: X вперёд, Y вверх, Z вправо; курс от Севера по часовой",
+  "consistency_check": {
+    "note": "счисление по чистому ИМУ без коррекции, отклонение от истины",
+    "max_horizontal_m": 145.4141,
+    "rms_horizontal_m": 48.2191,
+    "max_alt_m": 0.8746,
+    "max_vel_m_s": 1.66501,
+    "max_angle_deg": 0.09714
+  },
+  "short": "Змейка на 15 м/с, широта 60°: гейтинг коррекции на манёврах"
+}
