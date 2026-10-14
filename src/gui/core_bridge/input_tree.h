@@ -1,8 +1,8 @@
 // input_tree.h — Модель дерева входных данных.
 //
-// Показывает imu.dat / gps.dat / angle.dat / StartupNav.ini с размерами,
-// числом строк и подсветкой отсутствующих файлов. Число строк imu.dat
-// (200 Гц × длительность) считается один раз и кешируется.
+// Показывает imu.dat/imu.data, gps.dat/gps.data, angle.dat/angle.data,
+// StartupNav.ini с размерами, числом строк и подсветкой отсутствующих файлов.
+// Число строк ИМУ (200 Гц × длительность) считается один раз и кешируется.
 
 #pragma once
 
@@ -16,8 +16,9 @@ namespace gui
 // Описание одного входного файла.
 struct InputFile
 {
-    QString name;
-    QString path;
+    QString name;      // основное имя (старый формат)
+    QString path;      // фактический путь выбранного файла
+    QString alt;       // альтернативное имя (новый формат .data), может быть пустым
     bool required = true;
     bool exists = false;
     qint64 size = 0;

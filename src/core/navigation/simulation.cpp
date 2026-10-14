@@ -94,7 +94,9 @@ bool readStartupNav(const std::string &path, double &lon_deg, double &lat_deg,
 
 std::size_t countImuRows(const std::string &imu_path)
 {
-    std::ifstream f(imu_path);
+    // Бинарный режим — как в ImuReader, чтобы 0x1A в повреждённых наборах
+    // не обрезал подсчёт числа строк.
+    std::ifstream f(imu_path, std::ios::in | std::ios::binary);
     if (!f.is_open()) return 0;
 
     std::size_t rows = 0;
@@ -112,11 +114,11 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
 {
     summary = RunSummary{};
 
-    const std::string data_dir = options.data_dir;
-    const std::string imu_file = data_dir + "/imu.dat";
-    const std::string gps_file = data_dir + "/gps.dat";
-    const std::string angle_file = data_dir + "/angle.dat";
-    const std::string startup_file = data_dir + "/StartupNav.ini";
+    // Источник входных данных: файлы в options.data_dir либо заданный
+    // вызывающим (например, MockDataSource — тесты, позже поток с порта).
+    data_io::FileDataSource owned_source(options.data_dir);
+    data_io::IDataSource *src = (options.source != nullptr) ? options.source : &owned_source;
+    const bool source_is_file = (options.source == nullptr);
 
     const auto wall_start = std::chrono::high_resolution_clock::now();
 
@@ -152,20 +154,28 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     applySettings(settings);
     if (legacy_params) applyLegacyParamsFile(options.settings_file, log);
 
-    const bool has_angle = std::filesystem::exists(angle_file);
+    const bool has_angle = src->hasAngle();
     summary.has_angle = has_angle;
     if (log)
     {
-        *log << "angle.dat: " << (has_angle ? "found" : "not found (angles will be zero)")
-             << std::endl;
+        *log << "angle.dat/angle.data: "
+             << (has_angle ? "found" : "not found (angles will be zero)") << std::endl;
     }
 
     const std::filesystem::path tools_dir = options.output_dir;
 
+    // Открытие источника (с начала): нужно для чтения StartupNav и первого отсчёта СНС.
+    if (!src->open())
+    {
+        summary.error = src->error().empty() ? "cannot open input data" : src->error();
+        if (log) *log << summary.error << std::endl;
+        return false;
+    }
+
     double start_lon = 0.0, start_lat = 0.0, start_alt = 0.0;
     double align_time = settings.align_fallback_s;
 
-    if (readStartupNav(startup_file, start_lon, start_lat, start_alt, align_time))
+    if (src->startupNav(start_lon, start_lat, start_alt, align_time))
     {
         if (log)
         {
@@ -177,16 +187,13 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     {
         if (log) *log << "StartupNav not found, reading from gps.dat..." << std::endl;
 
-        data_io::SnsReader sns_tmp;
-        if (!sns_tmp.open(gps_file, has_angle ? angle_file : ""))
+        SnsSample first;
+        if (!src->nextSns(first))
         {
             summary.error = "no reference data";
             if (log) *log << summary.error << std::endl;
             return false;
         }
-        SnsSample first;
-        sns_tmp.next(first);
-        sns_tmp.close();
 
         start_lon = first.lon * RAD_TO_DEG;
         start_lat = first.lat * RAD_TO_DEG;
@@ -215,8 +222,40 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     double ba_x = 0.0, ba_y = 0.0, ba_z = 0.0;
 
     if (log) *log << "=== Alignment ===" << std::endl;
-    get_angle_start(&Yaw_0, &Pitch_0, &Roll_0, &ba_x, &ba_y, &ba_z,
-                    imu_file.c_str(), start_lat, start_alt, align_time);
+
+    // Перемотка к началу потока ИМУ и выставка по тому же интерфейсу, что и
+    // основной цикл (файл или память — без различий в математике).
+    if (!src->open())
+    {
+        summary.error = src->error().empty() ? "cannot open input data" : src->error();
+        if (log) *log << summary.error << std::endl;
+        return false;
+    }
+    AlignImuProvider align_provider =
+        [src](double &Time, double &Wx, double &Wy, double &Wz,
+              double &Ax, double &Ay, double &Az) -> bool
+    {
+        std::vector<double> row;
+        while (src->nextImu(row))
+        {
+            if (!ins::isValidRow(row))
+            {
+                continue;
+            }
+            Time = row[0];
+            Wx = row[2];
+            Wy = row[3];
+            Wz = row[4];
+            Ax = row[5];
+            Ay = row[6];
+            Az = row[7];
+            return true;
+        }
+        return false;
+    };
+    alignFromImuProvider(align_provider, &Yaw_0, &Pitch_0, &Roll_0,
+                         &ba_x, &ba_y, &ba_z, start_lat, start_alt, align_time,
+                         source_is_file);
 
     if (log)
     {
@@ -247,17 +286,11 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
 
     if (observer != nullptr) observer->onAlignment(summary);
 
-    data_io::ImuReader imu;
-    if (!imu.open(imu_file))
+    // Основной цикл читает потоки с начала.
+    if (!src->open())
     {
-        summary.error = "cannot open " + imu_file;
-        return false;
-    }
-    data_io::SnsReader sns;
-    if (!sns.open(gps_file, has_angle ? angle_file : ""))
-    {
-        summary.error = "cannot open " + gps_file;
-        imu.close();
+        summary.error = src->error().empty() ? "cannot open input data" : src->error();
+        if (log) *log << summary.error << std::endl;
         return false;
     }
 
@@ -272,8 +305,7 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         if (!file_logger.open(result_file, reference_file, err_file))
         {
             summary.error = "cannot open output files in " + tools_dir.string();
-            imu.close();
-            sns.close();
+            src->close();
             return false;
         }
         file_sink = &file_logger;
@@ -294,11 +326,11 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     bool hold_valid = false;
 
     const double total_rows =
-        (observer != nullptr) ? static_cast<double>(countImuRows(imu_file)) : 0.0;
+        (observer != nullptr) ? static_cast<double>(src->imuRowCount()) : 0.0;
     double done_rows = 0.0;
     double last_report_time = -1.0;
 
-    while (imu.next(row))
+    while (src->nextImu(row))
     {
         done_rows += 1.0;
 
@@ -317,8 +349,7 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
             pacer->beforeStep(imu_time, options.speed_factor);
             if (cancel != nullptr && cancel->cancelled())
             {
-                imu.close();
-                sns.close();
+                src->close();
                 sink.close();
                 summary.error = "cancelled";
                 return false;
@@ -332,7 +363,7 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
                 hold_ref = last_ref;
                 hold_valid = true;
             }
-            if (!sns.next(last_ref))
+            if (!src->nextSns(last_ref))
             {
                 break;
             }
@@ -365,7 +396,7 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
 
         summary.steps++;
         if (do_correction) summary.corrections++;
-        if (summary.time_first == 0.0) summary.time_first = imu_time;
+        if (summary.steps == 1) summary.time_first = imu_time;
         summary.time_last = imu_time;
 
         if (want_telemetry)
@@ -382,16 +413,14 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
 
         if (cancel != nullptr && cancel->cancelled())
         {
-            imu.close();
-            sns.close();
+            src->close();
             sink.close();
             summary.error = "cancelled";
             return false;
         }
     }
 
-    imu.close();
-    sns.close();
+    src->close();
     sink.close();
 
     if (observer != nullptr) observer->onProgress(summary.time_last, done_rows, total_rows);

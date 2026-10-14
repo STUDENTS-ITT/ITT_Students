@@ -8,6 +8,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointF>
 #include <QScopedPointer>
 
 #include "core_bridge/run_store.h"
@@ -16,6 +17,7 @@
 #include "settings/app_settings.h"
 
 class QAction;
+class QLabel;
 class QTabWidget;
 class QTimer;
 class QThread;
@@ -36,6 +38,7 @@ class SimulationWorker;
 class StatePanel;
 class TimeSeriesPlot;
 class TrajectoryPlot;
+class TuningPanel;
 
 class MainWindow : public QMainWindow
 {
@@ -61,6 +64,11 @@ public:
     // Сборка сводного PDF-отчёта в файл без диалога (используется self-test).
     bool exportReportTo(const QString &path, QString *error = nullptr);
 
+    // Экспорт статических матриц фильтра (Q/R/P0/H) в каталог без диалога:
+    // три файла matrices_<датасет>.{csv,md,json}. Используется режимом
+    // --export-matrices и self-test. false — ошибка (текст в error).
+    bool exportMatricesTo(const QString &dir, QString *error = nullptr);
+
     // Второй прогон для сравнения с текущим (план 2.4): его ряды добавляются
     // на графики пунктиром, а по запросу — их разность с текущим прогоном.
     // Возвращает число загруженных строк (0 — прогон не найден).
@@ -78,6 +86,7 @@ private Q_SLOTS:
     // Управление прогоном.
     void onStart();
     void onStop();
+    void onGenerateDataset();
     void onPauseToggled(bool paused);
     void onSpeedFactorChanged(double factor);
     void onWorkerFinished(bool ok, const QString &message);
@@ -95,6 +104,7 @@ private Q_SLOTS:
     void onSettingsChanged();
     void onLoadSettingsFile();
     void onSaveSettingsFile();
+    void onSaveSettingsAs();
     void onResetParams();
     void onApplyParams();
 
@@ -104,8 +114,14 @@ private Q_SLOTS:
     void onExportPdf();
     void onExportReport();
     void onExportCsv();
+    void onExportAllPlots();
+    void onExportSeriesCsv();
+    void onExportAnimation();
+    void onExportMatrices();
     void onSaveLog();
     void onToggleTheme(bool dark);
+    void onToggleCache(bool on);
+    void onUpdateCacheStatus();
     void onResetZoom();
     void onSelectPlot(int index);
 
@@ -115,6 +131,11 @@ private Q_SLOTS:
     void onCompareSelectRun();
     void onCompareDiffToggled(bool on);
     void onCompareClear();
+
+    // Подбор коэффициентов (вкладка «Подбор»).
+    void onApplyTuningPreset(const QString &path);
+    void onTuningLog(const QString &text, int level);
+    void onTuningFinished(bool ok);
 
 Q_SIGNALS:
     // Прогон завершён (успешно, с ошибкой или по команде остановки).
@@ -137,6 +158,13 @@ private:
     // Текущий график (вкладка) для экспорта.
     PlotView *currentPlot() const;
 
+    // Все графики во вкладках, в порядке вкладок (для пакетного экспорта
+    // и счётчиков кэша).
+    QList<PlotView *> allPlots() const;
+
+    // Диагностика кэша: суммарные hits/misses по всем графикам.
+    void cacheCounters(quint64 *hits, quint64 *misses) const;
+
     // Блоки графиков для сводного PDF-отчёта: собираются из тех же данных,
     // что уже выведены на экран (включая сравнение и метки СНС).
     QVector<PdfReport::PlotBlock> buildReportBlocks() const;
@@ -147,6 +175,10 @@ private:
 
     // Перевод географических координат в метры от точки старта.
     void updateTrajectory();
+
+    // Точки траектории (БИНС) и эталона СНС в метрах от точки старта —
+    // общий код для updateTrajectory() и экспорта анимации.
+    void buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref);
 
     void applyTheme(bool dark);
     void saveSettings();
@@ -176,6 +208,7 @@ private:
     QScopedPointer<DataPanel> data_;
     QScopedPointer<ParamsPanel> params_;
     QScopedPointer<LogPanel> log_;
+    QScopedPointer<TuningPanel> tuning_;
     QScopedPointer<NavTableModel> nav_model_;
     QScopedPointer<ParamsTableModel> params_model_;
     QScopedPointer<HistoryModel> history_model_;
@@ -193,12 +226,15 @@ private:
     // Ряды, которые ещё можно включить/выключить в легенде.
     QAction *theme_action_ = nullptr;
     QAction *export_report_action_ = nullptr;
+    QAction *cache_action_ = nullptr;
     QAction *start_action_ = nullptr;
     QAction *stop_action_ = nullptr;
     QAction *compare_diff_action_ = nullptr;
     QAction *compare_clear_action_ = nullptr;
 
     QTimer *refresh_timer_ = nullptr;
+    QTimer *cache_timer_ = nullptr;
+    QLabel *cache_status_label_ = nullptr;
     QThread *thread_ = nullptr;
     SimulationWorker *worker_ = nullptr;
 

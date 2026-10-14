@@ -3,10 +3,18 @@
 #include "views/params_panel.h"
 
 #include <QAbstractItemView>
+#include <QAction>
+#include <QDir>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QTabWidget>
 #include <QTableView>
@@ -17,6 +25,14 @@
 
 namespace gui
 {
+
+namespace
+{
+QString presetsDir()
+{
+    return AppSettings::defaultPresetsDir();
+}
+} // namespace
 
 ParamsPanel::ParamsPanel(QWidget *parent) : QWidget(parent)
 {
@@ -37,7 +53,24 @@ ParamsPanel::ParamsPanel(QWidget *parent) : QWidget(parent)
                                                             QHeaderView::ResizeToContents);
     params_view_->setColumnWidth(ParamsTableModel::ColDescription, 220);
     connect(params_view_, &QAbstractItemView::doubleClicked, this, &ParamsPanel::applyToCore);
-    tabs_->addTab(params_view_, tr("Параметры"));
+
+    auto *params_page = new QWidget;
+    auto *params_layout = new QVBoxLayout(params_page);
+    params_layout->setContentsMargins(0, 0, 0, 0);
+
+    // Кнопка-меню «Пресеты»: сохранение/загрузка/удаление presets/*.ini
+    // и список уже сохранённых пресетов (перестраивается при открытии меню).
+    auto *presets_row = new QHBoxLayout;
+    presets_button_ = new QPushButton(tr("Пресеты ▾"));
+    presets_menu_ = new QMenu(presets_button_);
+    presets_button_->setMenu(presets_menu_);
+    connect(presets_menu_, &QMenu::aboutToShow, this, &ParamsPanel::rebuildPresetMenu);
+    presets_row->addWidget(presets_button_);
+    presets_row->addStretch(1);
+    params_layout->addLayout(presets_row);
+
+    params_layout->addWidget(params_view_, 1);
+    tabs_->addTab(params_page, tr("Параметры"));
 
     // --- История прогонов ---
     history_ = new HistoryModel(this);
@@ -144,6 +177,112 @@ bool ParamsPanel::saveSettings(const QString &fileName, QString *error)
     out << text;
     out.close();
     return true;
+}
+
+bool ParamsPanel::loadSettingsText(const QString &iniText, QString *error)
+{
+    nav::FilterSettings settings;
+    if (!nav::parseFilterSettings(iniText.toStdString(), settings))
+    {
+        if (error) *error = tr("Не удалось разобрать снимок параметров");
+        return false;
+    }
+
+    model_->setSettings(settings);
+    Q_EMIT settingsEdited();
+    return true;
+}
+
+void ParamsPanel::onSavePreset()
+{
+    QDir dir(presetsDir());
+    dir.mkpath(".");
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Сохранить пресет"), dir.filePath("preset.ini"),
+        tr("INI-файлы (*.ini);;Все файлы (*)"));
+    if (path.isEmpty()) return;
+
+    QString error;
+    if (!saveSettings(path, &error))
+    {
+        QMessageBox::warning(this, tr("Пресеты"), error);
+        return;
+    }
+}
+
+void ParamsPanel::onLoadPreset()
+{
+    QDir dir(presetsDir());
+    if (!dir.exists()) dir.mkpath(".");
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Загрузить пресет"), presetsDir(),
+        tr("INI-файлы (*.ini);;Все файлы (*)"));
+    if (path.isEmpty()) return;
+
+    loadPresetFile(path);
+}
+
+void ParamsPanel::onDeletePreset()
+{
+    QDir dir(presetsDir());
+    if (!dir.exists()) dir.mkpath(".");
+
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Удалить пресет"), presetsDir(),
+        tr("INI-файлы (*.ini);;Все файлы (*)"));
+    if (path.isEmpty()) return;
+
+    if (QMessageBox::question(this, tr("Пресеты"),
+                              tr("Удалить пресет %1?").arg(path)) != QMessageBox::Yes)
+    {
+        return;
+    }
+    if (!QFile::remove(path))
+    {
+        QMessageBox::warning(this, tr("Пресеты"),
+                             tr("Не удалось удалить %1").arg(path));
+    }
+}
+
+void ParamsPanel::loadPresetFile(const QString &path)
+{
+    QString error;
+    if (!loadSettings(path, &error))
+    {
+        QMessageBox::warning(this, tr("Пресеты"), error);
+        return;
+    }
+    applyToCore();
+}
+
+void ParamsPanel::rebuildPresetMenu()
+{
+    presets_menu_->clear();
+
+    QAction *save = presets_menu_->addAction(tr("Сохранить как пресет…"));
+    connect(save, &QAction::triggered, this, &ParamsPanel::onSavePreset);
+    QAction *load = presets_menu_->addAction(tr("Загрузить пресет…"));
+    connect(load, &QAction::triggered, this, &ParamsPanel::onLoadPreset);
+    QAction *remove = presets_menu_->addAction(tr("Удалить пресет…"));
+    connect(remove, &QAction::triggered, this, &ParamsPanel::onDeletePreset);
+
+    QDir dir(presetsDir());
+    if (!dir.exists()) return;
+
+    const QStringList names =
+        dir.entryList({"*.ini"}, QDir::Files, QDir::Name | QDir::IgnoreCase);
+    if (names.isEmpty()) return;
+
+    presets_menu_->addSeparator();
+    for (const QString &name : names)
+    {
+        QAction *a = presets_menu_->addAction(name);
+        const QString path = dir.filePath(name);
+        connect(a, &QAction::triggered, this,
+                [this, path]() { loadPresetFile(path); });
+    }
 }
 
 void ParamsPanel::resetToDefaults()

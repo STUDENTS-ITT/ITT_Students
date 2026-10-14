@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <QStringList>
 #include <QWidget>
 
 #include "core/navigation/filter_settings.h"
@@ -14,6 +15,8 @@
 #include "settings/app_settings.h"
 
 class QLineEdit;
+class QMenu;
+class QPushButton;
 class QSortFilterProxyModel;
 class QTabWidget;
 class QTableView;
@@ -40,6 +43,9 @@ public:
     // Сохранить в settings.ini.
     bool saveSettings(const QString &fileName, QString *error = nullptr);
 
+    // Загрузить из строки INI (снимок параметров прогона из истории).
+    bool loadSettingsText(const QString &iniText, QString *error = nullptr);
+
 public Q_SLOTS:
     void resetToDefaults();
     void applyToCore();
@@ -49,6 +55,13 @@ Q_SIGNALS:
     void runSelected(qint64 run_id);
 
 private:
+    // Прессеты параметров: каталог presets/*.ini рядом с приложением.
+    void onSavePreset();
+    void onLoadPreset();
+    void onDeletePreset();
+    void loadPresetFile(const QString &path);
+    void rebuildPresetMenu();
+
     QTabWidget *tabs_ = nullptr;
     ParamsTableModel *model_ = nullptr;
     QTableView *params_view_ = nullptr;
@@ -58,6 +71,8 @@ private:
     QSortFilterProxyModel *history_proxy_ = nullptr;
     QTableView *history_view_ = nullptr;
     QLineEdit *history_filter_ = nullptr;
+    QPushButton *presets_button_ = nullptr;
+    QMenu *presets_menu_ = nullptr;
     QLabel *hint_ = nullptr;
 };
 

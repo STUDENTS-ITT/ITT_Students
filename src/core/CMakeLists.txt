@@ -2,11 +2,14 @@
 #
 # Собирается как статическая библиотека C++17 (STL, без Qt).
 # Правило проекта: в этом каталоге не должно быть ни одного
-# `#include <Q...>` — проверяется скриптом tools/check_no_qt_in_core.ps1.
+# `#include <Q...>` — проверяется скриптом tools/check_no_qt_in_core.cmake
+# (ctest-тест `core_has_no_qt`).
 
 add_library(esfcore STATIC
     data_io/data_reader.cpp
+    data_io/data_source.cpp
     data_io/data_writer.cpp
+    data_io/dataset_generator.cpp
     navigation/Aligner.cpp
     navigation/filter_settings.cpp
     navigation/simulation.cpp

@@ -17,6 +17,7 @@
 #include <QTranslator>
 
 #include "MainWindow.h"
+#include "core/data_io/dataset_generator.h"
 #include "settings/app_settings.h"
 
 int main(int argc, char *argv[])
@@ -30,6 +31,14 @@ int main(int argc, char *argv[])
         if (qstrcmp(argv[i], "--self-test") == 0)
         {
             self_test = true;
+            qputenv("QT_QPA_PLATFORM", "offscreen");
+        }
+        else if (qstrncmp(argv[i], "--self-test-generate", 20) == 0)
+        {
+            qputenv("QT_QPA_PLATFORM", "offscreen");
+        }
+        else if (qstrncmp(argv[i], "--export-matrices", 17) == 0)
+        {
             qputenv("QT_QPA_PLATFORM", "offscreen");
         }
         else if (qstrncmp(argv[i], "--self-test-timeout=", 20) == 0)
@@ -82,6 +91,15 @@ int main(int argc, char *argv[])
                                             QCoreApplication::translate("main",
                                                 "Файл для отчёта о прогоне в режиме --self-test (с логом)."),
                                             QCoreApplication::translate("main", "file"));
+    QCommandLineOption self_test_generate_opt("self-test-generate",
+                                              QCoreApplication::translate("main",
+                                                  "Сгенерировать тестовый набор данных в указанный каталог и выйти (для CI)."),
+                                              QCoreApplication::translate("main", "dir"));
+    QCommandLineOption export_matrices_opt("export-matrices",
+                                           QCoreApplication::translate("main",
+                                               "Без окна: экспортировать статические матрицы фильтра "
+                                               "(Q/R/P0/H) в указанный каталог (csv/md/json) и выйти. Для CI."),
+                                           QCoreApplication::translate("main", "dir"));
 
     parser.addOption(data_opt);
     parser.addOption(out_opt);
@@ -91,6 +109,8 @@ int main(int argc, char *argv[])
     parser.addOption(self_test_opt);
     parser.addOption(self_test_timeout_opt);
     parser.addOption(self_test_report_opt);
+    parser.addOption(self_test_generate_opt);
+    parser.addOption(export_matrices_opt);
     parser.process(app);
 
     QString report_file;
@@ -119,6 +139,65 @@ int main(int argc, char *argv[])
     if (parser.isSet(dark_opt))
     {
         settings.dark_theme = true;
+    }
+
+    // В режиме --self-test-generate приложение не создаёт окно, а только
+    // синтезирует набор данных (для smoke-теста, чтобы не зависеть от
+    // датасета в репозитории) и выходит.
+    if (parser.isSet(self_test_generate_opt))
+    {
+        dataset::DatasetConfig cfg;
+        cfg.name = "gui_smoke";
+        cfg.out_dir = QDir(parser.value(self_test_generate_opt)).absolutePath().toStdString();
+        cfg.profile = {
+            {cfg.align_time_s, 0.0, 0.0, 0.0},   // выставка (покой)
+            {20.0, 10.0, 0.0, 0.0},
+            {40.0, 10.0, 0.0, 1.5},
+            {20.0, 10.0, 0.0, 0.0},
+            {20.0, 0.0, 0.0, 0.0},
+        };
+
+        dataset::DatasetReport report;
+        std::string gen_error;
+        const bool gen_ok = dataset::generateDataset(cfg, report, &gen_error);
+
+        QTextStream out(stdout);
+        if (gen_ok)
+        {
+            out << QStringLiteral("self-test-generate: IMU=%1, GPS=%2, ANGLE=%3, TRUTH=%4 (%5 с) -> %6\n")
+                       .arg(report.imu_rows)
+                       .arg(report.gps_rows)
+                       .arg(report.angle_rows)
+                       .arg(report.truth_rows)
+                       .arg(report.duration_s)
+                       .arg(QString::fromStdString(cfg.out_dir));
+        }
+        else
+        {
+            out << QStringLiteral("self-test-generate: ошибка: %1\n")
+                       .arg(QString::fromStdString(gen_error));
+        }
+        out.flush();
+        return gen_ok ? 0 : 1;
+    }
+
+    // Режим --export-matrices: без окна собираем статические матрицы фильтра
+    // (Q/R/P0/H) для текущих настроек/датасета и сохраняем csv/md/json.
+    if (parser.isSet(export_matrices_opt))
+    {
+        const QString dir = QDir(parser.value(export_matrices_opt)).absolutePath();
+        gui::MainWindow window(settings, /*autostart=*/false);
+
+        QString error;
+        const bool ok = window.exportMatricesTo(dir, &error);
+
+        QTextStream out(stdout);
+        if (ok)
+            out << QStringLiteral("export-matrices: ok -> %1\n").arg(dir);
+        else
+            out << QStringLiteral("export-matrices: ошибка: %1\n").arg(error);
+        out.flush();
+        return ok ? 0 : 1;
     }
 
     // В режиме --self-test расчёт стартует сразу, окно не показывается, а после
@@ -219,6 +298,36 @@ int main(int argc, char *argv[])
                                     .arg(report_error.isEmpty()
                                              ? QStringLiteral("сборка не удалась")
                                              : report_error);
+                ok = false;
+            }
+        }
+
+        // Экспорт статических матриц фильтра (Q/R/P0/H): проверяем, что
+        // в отдельном каталоге появились все три файла (csv/md/json).
+        if (ok)
+        {
+            QString mdir = QDir(QDir::tempPath())
+                               .filePath(QStringLiteral("imitator_self_test_matrices"));
+            if (!report_file.isEmpty())
+            {
+                mdir = QFileInfo(report_file).absolutePath() +
+                       QStringLiteral("/imitator_self_test_matrices");
+            }
+            QDir().mkpath(mdir);
+
+            QString matrices_error;
+            const bool matrices_ok = window.exportMatricesTo(mdir, &matrices_error);
+            const int files = QDir(mdir).entryList(QDir::Files).size();
+            if (matrices_ok && files >= 3)
+            {
+                history_note += QString("; matrices: %1 файлов").arg(files);
+            }
+            else
+            {
+                history_note += QString("; matrices: %1")
+                                    .arg(matrices_error.isEmpty()
+                                             ? QStringLiteral("файлы не созданы")
+                                             : matrices_error);
                 ok = false;
             }
         }

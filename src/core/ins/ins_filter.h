@@ -50,12 +50,15 @@ inline KalmanConfig kalman_cfg;
 // Матрица шума процесса Q (диагональная, по моделям дрейфа).
 // σ_g, σ_a — шумы гироскопа и акселерометра;
 // σ_bg, σ_ba — дрейфы смещений гироскопа и акселерометра.
-inline Matrix Qj_matrix(double T)
+//
+// Явная конфигурация передаётся аргументом (для экспорта/документации), чтобы
+// не зависеть от изменяемой глобальной ins::kalman_cfg. Арифметика та же.
+inline Matrix Qj_matrix(const KalmanConfig &cfg, double T)
 {
-    const double sig_g = kalman_cfg.sig_g;
-    const double sig_a = kalman_cfg.sig_a;
-    const double sig_bg = kalman_cfg.sig_bg;
-    const double sig_ba = kalman_cfg.sig_ba;
+    const double sig_g = cfg.sig_g;
+    const double sig_a = cfg.sig_a;
+    const double sig_bg = cfg.sig_bg;
+    const double sig_ba = cfg.sig_ba;
 
     const double q_v = sig_a * sig_a * T;
     const double q_att = sig_g * sig_g * T;
@@ -76,14 +79,22 @@ inline Matrix Qj_matrix(double T)
     return Qj;
 }
 
+// Матрица Q по текущей (глобальной) конфигурации — поведение без изменений.
+inline Matrix Qj_matrix(double T)
+{
+    return Qj_matrix(kalman_cfg, T);
+}
+
 // Матрица шума измерений R (диагональная).
 // Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с.
 // Углы: курс — из СНС (sig_hdg), крен/тангаж — из акселя (sig_pitch, sig_roll).
-inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
+//
+// Явная конфигурация передаётся аргументом (для экспорта/документации).
+inline Matrix Rj_matrix(const KalmanConfig &cfg, double sig_hdg, double sig_pitch, double sig_roll)
 {
-    const double sig_pos = kalman_cfg.sig_pos;   // позиция в радианах
-    const double sig_h = kalman_cfg.sig_h;       // высота, м
-    const double sig_v = kalman_cfg.sig_v;       // скорость, м/с
+    const double sig_pos = cfg.sig_pos;   // позиция в радианах
+    const double sig_h = cfg.sig_h;       // высота, м
+    const double sig_v = cfg.sig_v;       // скорость, м/с
 
     Matrix Rj(KF_MEAS * KF_MEAS, 0);
     const double rdiag[KF_MEAS] = {
@@ -93,6 +104,12 @@ inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
     for (int i = 0; i < KF_MEAS; i++)
         at(Rj, i, i, KF_MEAS) = rdiag[i];
     return Rj;
+}
+
+// Матрица R по текущей (глобальной) конфигурации — поведение без изменений.
+inline Matrix Rj_matrix(double sig_hdg, double sig_pitch, double sig_roll)
+{
+    return Rj_matrix(kalman_cfg, sig_hdg, sig_pitch, sig_roll);
 }
 
 // Матрица моста F (15×15): связь ошибок ориентации/скорости/координат

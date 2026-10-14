@@ -21,19 +21,21 @@ InputTreeModel::InputTreeModel(QObject *parent) : QAbstractItemModel(parent)
     const struct
     {
         const char *name;
+        const char *alt;
         bool required;
         const char *note;
     } spec[] = {
-        {"imu.dat", true, "ИМУ: время, гироскоп, акселерометр"},
-        {"gps.dat", true, "СНС: координаты и скорости (1 Гц)"},
-        {"angle.dat", false, "Эталон углов ориентации (опционально)"},
-        {"StartupNav.ini", true, "Координаты и время выставки"},
+        {"imu.dat", "imu.data", true, "ИМУ: время, гироскоп, акселерометр"},
+        {"gps.dat", "gps.data", true, "СНС: координаты и скорости (1 Гц)"},
+        {"angle.dat", "angle.data", false, "Эталон углов ориентации (опционально)"},
+        {"StartupNav.ini", nullptr, true, "Координаты и время выставки"},
     };
 
     for (const auto &s : spec)
     {
         InputFile f;
         f.name = QString::fromLatin1(s.name);
+        f.alt = s.alt != nullptr ? QString::fromLatin1(s.alt) : QString();
         f.required = s.required;
         f.note = QString::fromUtf8(s.note);
         files_.push_back(f);
@@ -78,7 +80,18 @@ void InputTreeModel::scan()
 {
     for (InputFile &f : files_)
     {
-        const QString path = dir_.isEmpty() ? QString() : QDir(dir_).filePath(f.name);
+        // Предпочтение — старому имени, иначе берём файл нового формата (.data).
+        QString name = f.name;
+        if (!dir_.isEmpty() && !f.alt.isEmpty())
+        {
+            const QString old_path = QDir(dir_).filePath(name);
+            if (!QFileInfo::exists(old_path) && QFileInfo::exists(QDir(dir_).filePath(f.alt)))
+            {
+                name = f.alt;
+            }
+        }
+
+        const QString path = dir_.isEmpty() ? QString() : QDir(dir_).filePath(name);
         f.path = path;
         const QFileInfo info(path);
         f.exists = info.exists() && info.isFile();
@@ -151,14 +164,17 @@ QVariant InputTreeModel::data(const QModelIndex &index, int role) const
     switch (role)
     {
     case Qt::DisplayRole:
+        // Отображаем фактическое имя файла (старый или новый формат).
         if (f.exists)
         {
             return QString("%1  (%2 строк, %3 МБ)")
-                .arg(f.name)
+                .arg(QFileInfo(f.path).fileName())
                 .arg(f.lines)
                 .arg(f.size / (1024 * 1024));
         }
-        return QString("%1  —  %2").arg(f.name, f.required ? "нет файла" : "нет (опционально)");
+        return QString("%1  —  %2")
+            .arg(QFileInfo(f.path).fileName(),
+                 f.required ? "нет файла" : "нет (опционально)");
 
     case Qt::ForegroundRole:
         if (!f.exists)

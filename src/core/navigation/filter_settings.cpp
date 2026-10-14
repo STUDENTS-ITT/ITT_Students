@@ -54,6 +54,29 @@ std::vector<FieldBinding> tiltBindings(TiltManeuverPolicy &p)
     };
 }
 
+// Применить ключи INI к полям набора настроек (без изменения того, что в
+// файле отсутствует). Используется и файлом, и строковым снимком.
+bool applyIni(const utils::IniFile &ini, FilterSettings &s)
+{
+    for (const auto &b : filterBindings(s.filter))
+    {
+        if (ini.has(b.key)) *b.field = ini.value(b.key, *b.field);
+    }
+    for (const auto &b : tiltBindings(s.tilt))
+    {
+        if (ini.has(b.key)) *b.field = ini.value(b.key, *b.field);
+    }
+    if (ini.has("run/align_time_override_s"))
+    {
+        s.align_time_override_s = ini.value("run/align_time_override_s", s.align_time_override_s);
+    }
+    if (ini.has("run/align_fallback_s"))
+    {
+        s.align_fallback_s = ini.value("run/align_fallback_s", s.align_fallback_s);
+    }
+    return true;
+}
+
 std::string fmt(double v)
 {
     std::ostringstream ss;
@@ -89,24 +112,14 @@ bool loadFilterSettings(const std::string &path, FilterSettings &s)
 {
     utils::IniFile ini;
     if (!ini.load(path)) return false;
+    return applyIni(ini, s);
+}
 
-    for (const auto &b : filterBindings(s.filter))
-    {
-        if (ini.has(b.key)) *b.field = ini.value(b.key, *b.field);
-    }
-    for (const auto &b : tiltBindings(s.tilt))
-    {
-        if (ini.has(b.key)) *b.field = ini.value(b.key, *b.field);
-    }
-    if (ini.has("run/align_time_override_s"))
-    {
-        s.align_time_override_s = ini.value("run/align_time_override_s", s.align_time_override_s);
-    }
-    if (ini.has("run/align_fallback_s"))
-    {
-        s.align_fallback_s = ini.value("run/align_fallback_s", s.align_fallback_s);
-    }
-    return true;
+bool parseFilterSettings(const std::string &iniText, FilterSettings &s)
+{
+    utils::IniFile ini;
+    ini.loadFromString(iniText);
+    return applyIni(ini, s);
 }
 
 bool settingsFileHasSections(const std::string &path)
@@ -148,6 +161,7 @@ void applyLegacyParamsFile(const std::string &path, std::ostream *log)
         {"sigma_bg", &ins::kalman_cfg.sig_bg},
         {"sigma_ba", &ins::kalman_cfg.sig_ba},
         {"sigma_pos", &ins::kalman_cfg.sig_pos},
+        {"sigma_h", &ins::kalman_cfg.sig_h},
         {"sigma_v", &ins::kalman_cfg.sig_v},
         {"sigma_ang", &ins::kalman_cfg.sig_hdg},
         {"outage_start_s", &ins::kalman_cfg.outage_start_s},
@@ -191,6 +205,7 @@ void applyLegacyParamsFile(const std::string &path, std::ostream *log)
              << " sigma_bg=" << ins::kalman_cfg.sig_bg
              << " sigma_ba=" << ins::kalman_cfg.sig_ba
              << " sigma_pos=" << ins::kalman_cfg.sig_pos
+             << " sigma_h=" << ins::kalman_cfg.sig_h
              << " sigma_v=" << ins::kalman_cfg.sig_v
              << " sigma_ang=" << ins::kalman_cfg.sig_hdg << std::endl;
     }

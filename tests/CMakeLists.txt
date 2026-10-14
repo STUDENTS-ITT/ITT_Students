@@ -15,8 +15,10 @@ set(ITT_TESTS
     test_statistics
     test_ins_filter
     test_data_io
+    test_data_source
     test_settings
     test_simulation
+    test_dataset_generator
 )
 
 foreach(test_name IN LISTS ITT_TESTS)
@@ -37,14 +39,25 @@ foreach(test_name IN LISTS ITT_TESTS)
     endif()
 endforeach()
 
+# Этап 12: sanity-прогон на реальном наборе нового формата (.data).
+# Тест пропускается (QSKIP), если каталога нет на диске.
+target_compile_definitions(test_data_source PRIVATE
+    ITT_LINE_DATASET_DIR="${CMAKE_SOURCE_DIR}/ITT_Students-Katya/imitator_sq/test/line_dataset")
+
 # Графики на QPainter живут в Qt-слое, поэтому их тест собирает исходники
 # напрямую (esfcore к графикам отношения не имеет).
 qt_add_executable(test_plots
     test_plots.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/plot_view.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/time_series_plot.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/export/plot_exporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/export/animation_exporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/export/gif_writer.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/models/nav_table_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/core_bridge/telemetry_buffer.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/core_bridge/run_store.cpp
 )
-target_link_libraries(test_plots PRIVATE Qt6::Test Qt6::Widgets Qt6::Svg esfcore)
+target_link_libraries(test_plots PRIVATE Qt6::Test Qt6::Widgets Qt6::Svg Qt6::PrintSupport Qt6::Sql esfcore)
 target_include_directories(test_plots PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/gui
@@ -56,6 +69,28 @@ set_tests_properties(test_plots PROPERTIES
     TIMEOUT 120)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_plots PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Хранилище истории прогонов живёт в Qt-слое: собираем исходники напрямую
+# (как test_plots), тест проверяет снимок параметров и миграцию схемы.
+qt_add_executable(test_run_store
+    test_run_store.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/core_bridge/run_store.cpp
+)
+target_link_libraries(test_run_store PRIVATE
+    Qt6::Test Qt6::Sql esfcore)
+target_include_directories(test_run_store PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_run_store COMMAND test_run_store)
+set_tests_properties(test_run_store PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_run_store PROPERTIES ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
 endif()
 
@@ -81,4 +116,53 @@ set_tests_properties(test_pdf_report PROPERTIES
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_pdf_report PROPERTIES ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Экспорт статических матриц фильтра (Q/R/P0/H) — код GUI-слоя, собираем
+# исходник напрямую (как test_run_store); QtCore достаточно.
+qt_add_executable(test_matrices_exporter
+    test_matrices_exporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/export/matrices_exporter.cpp
+)
+target_link_libraries(test_matrices_exporter PRIVATE
+    Qt6::Test Qt6::Core esfcore)
+target_include_directories(test_matrices_exporter PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_matrices_exporter COMMAND test_matrices_exporter)
+set_tests_properties(test_matrices_exporter PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_matrices_exporter PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Паритет консоль vs GUI (этап 6 плана): test_parity.cpp запускает imitator и
+# imitator_gui на одних данных с одним явным settings.ini и сверяет бит-в-бит
+# result.txt/reference.txt/errors.txt (ими пользуются тюнер и GUI-графики).
+# Данные — data/raw; при чистом checkout без imu.dat тест не собирается.
+set(ITT_PARITY_DATA_DIR "${CMAKE_SOURCE_DIR}/data/raw")
+if(EXISTS "${ITT_PARITY_DATA_DIR}/imu.dat")
+    qt_add_executable(test_parity test_parity.cpp)
+    target_link_libraries(test_parity PRIVATE Qt6::Test esfcore)
+    target_include_directories(test_parity PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_compile_definitions(test_parity PRIVATE
+        ITT_IMITATOR_EXE="$<TARGET_FILE:imitator>"
+        ITT_IMITATOR_GUI_EXE="$<TARGET_FILE:imitator_gui>"
+        ITT_PARITY_DATA_DIR="${ITT_PARITY_DATA_DIR}"
+    )
+    add_test(NAME test_parity COMMAND test_parity)
+    set_tests_properties(test_parity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 600)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+        set_tests_properties(test_parity PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+    endif()
 endif()

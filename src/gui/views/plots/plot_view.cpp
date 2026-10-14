@@ -536,7 +536,7 @@ void PlotView::renderTo(QPainter &painter, const QSize &size)
 
     drawEndMarker(painter, rect);
     drawLegend(painter, rect);
-    if (!building_cache_) drawCursor(painter, rect);
+    if (!building_cache_ && export_cursor_) drawCursor(painter, rect);
 
     painter.restore();
 }

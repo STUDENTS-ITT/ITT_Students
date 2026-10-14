@@ -92,6 +92,11 @@ public:
     quint64 cacheHits() const { return cache_hits_; }
     quint64 cacheMisses() const { return cache_misses_; }
 
+    // Рисовать ли перекрестие при отрисовке в изображение (renderTo).
+    // Для экспорта кадров и файлов курсор не нужен — по умолчанию включён.
+    void setExportCursorEnabled(bool on) { export_cursor_ = on; invalidateCache(); }
+    bool exportCursorEnabled() const { return export_cursor_; }
+
     // Текущий диапазон времени (для оси X графиков времени).
     double xMin() const { return xmin_; }
     double xMax() const { return xmax_; }
@@ -203,6 +208,8 @@ private:
     int content_version_ = 0;
     // В режиме построения кэша курсор не рисуется — он идёт поверх кэша.
     bool building_cache_ = false;
+    // Во время экспорта в кадры/файлы курсор не рисуется.
+    bool export_cursor_ = true;
 
     // Панорамирование мышью: диапазон на момент нажатия и текущая позиция.
     bool panning_ = false;

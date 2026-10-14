@@ -121,6 +121,74 @@ bool writeDataset(const QString &dir, int imu_rows, int gps_rows, bool with_angl
     return true;
 }
 
+// Секунды → "ЧЧ:ММ:СС.дробь" (новый формат dataset_1786981733).
+QString hms(double t)
+{
+    const qlonglong whole = static_cast<qlonglong>(t);
+    const int h = static_cast<int>(whole / 3600);
+    const int m = static_cast<int>((whole % 3600) / 60);
+    const double s = t - static_cast<double>(whole / 60 * 60);
+    return QString("%1:%2:%3")
+        .arg(h, 2, 10, QLatin1Char('0'))
+        .arg(m, 2, 10, QLatin1Char('0'))
+        .arg(s, 0, 'f', 9);
+}
+
+// Записывает синтетический датасет нового формата (imu.data / gps.data /
+// angle.data, время ЧЧ:ММ:СС.дробь) в каталог.
+bool writeNewDataset(const QString &dir, int imu_rows, int gps_rows, bool with_angle,
+                     double lat_deg = 22.5, double lon_deg = 114.0)
+{
+    {
+        QFile f(dir + "/imu.data");
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        f.write("# timestamp wx wy wz ax ay az\n");
+        for (int i = 0; i < imu_rows; i++)
+        {
+            const double t = 0.005 * i;
+            f.write(QString("%1\t0\t0\t0\t0\t0\t9.80665\n")
+                        .arg(hms(t))
+                        .toUtf8());
+        }
+    }
+    {
+        QFile f(dir + "/gps.data");
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        f.write("# time lat lon alt vx vy vz\n");
+        for (int i = 0; i < gps_rows; i++)
+        {
+            const double t = 0.2 * i;
+            f.write(QString("%1\t%2\t%3\t100.0\t0\t0\t0\n")
+                        .arg(hms(t))
+                        .arg(lat_deg, 0, 'f', 6)
+                        .arg(lon_deg, 0, 'f', 6)
+                        .toUtf8());
+        }
+    }
+    if (with_angle)
+    {
+        QFile f(dir + "/angle.data");
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        f.write("# time x y z qw qx qy qz vx vy vz roll pitch yaw\n");
+        for (int i = 0; i < gps_rows; i++)
+        {
+            const double t = 0.2 * i;
+            f.write(QString("%1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\n")
+                        .arg(hms(t))
+                        .toUtf8());
+        }
+    }
+    {
+        QFile f(dir + "/StartupNav.ini");
+        if (!f.open(QIODevice::WriteOnly)) return false;
+        f.write(QString("%1\n%2\n100.0\n2.0\n")
+                    .arg(lon_deg, 0, 'f', 6)
+                    .arg(lat_deg, 0, 'f', 6)
+                    .toUtf8());
+    }
+    return true;
+}
+
 // Наблюдатель, считающий вызовы обратной связи.
 class CountingObserver : public nav::SimulationObserver
 {
@@ -175,6 +243,7 @@ private slots:
     void pacerCanStopRun();
     void fullRunProducesSummary();
     void runWritesFiles();
+    void runsNewFormatDataset();
 };
 
 void TestSimulation::countsImuRows()
@@ -526,6 +595,43 @@ void TestSimulation::runWritesFiles()
         lines++;
     }
     QCOMPARE(lines, int(summary.steps) + 1);
+}
+
+void TestSimulation::runsNewFormatDataset()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const int imu_rows = 440;  // 0..2.195 c — покрывает выставку (2.0 c)
+    const int gps_rows = 20;
+    QVERIFY(writeNewDataset(dir.path(), imu_rows, gps_rows, true));
+
+    // Число строк считается по обоим форматам.
+    QCOMPARE(nav::countImuRows((dir.path() + "/imu.data").toStdString()),
+             std::size_t(imu_rows));
+
+    nav::RunOptions options;
+    options.data_dir = dir.path().toStdString();
+    options.output_dir = dir.path().toStdString();
+    options.write_files = true;
+
+    CountingObserver obs;
+    nav::RunSummary summary;
+    QVERIFY(nav::runSimulation(options, summary, &obs, nullptr, nullptr));
+
+    QVERIFY(summary.ok);
+    QVERIFY(summary.has_angle);
+    QCOMPARE(summary.steps, std::size_t(imu_rows));
+    QCOMPARE(obs.alignments, 1);
+    QCOMPARE(obs.results, imu_rows);
+    QVERIFY(obs.corrections > 0);
+    QVERIFY(std::isfinite(summary.yaw0_deg));
+    // Время ЧЧ:ММ:СС.дробь корректно переведено в секунды: 0.0 ... 0.005*(imu_rows-1).
+    QCOMPARE(summary.time_first, 0.0);
+    QVERIFY(qAbs(summary.time_last - 0.005 * (imu_rows - 1)) < 1e-6);
+
+    QVERIFY(QFileInfo::exists(dir.path() + "/result.txt"));
+    QVERIFY(QFileInfo::exists(dir.path() + "/reference.txt"));
+    QVERIFY(QFileInfo::exists(dir.path() + "/errors.txt"));
 }
 
 QTEST_MAIN(TestSimulation)

@@ -22,6 +22,10 @@ private slots:
     void readsImuFile();
     void readsSnsFileAndJoinsAngles();
     void readsSnsWithoutAngles();
+    void parsesHmsTimestamp();
+    void readsNewFormatImu();
+    void readsNewFormatSnsAndJoinsAngles();
+    void skipsGarbageRows();
     void loggerWritesAllThreeFiles();
 };
 
@@ -169,6 +173,146 @@ void TestDataIo::readsSnsWithoutAngles()
     QCOMPARE(s.roll, 0.0);
     QCOMPARE(s.maxSpeed(), 0.0);
     sns.close();
+}
+
+void TestDataIo::parsesHmsTimestamp()
+{
+    double t = 0.0;
+    QVERIFY(data_io::parseTimestamp("00:00:00.006000128", t));
+    QVERIFY(qAbs(t - 0.006000128) < 1e-12);
+
+    QVERIFY(data_io::parseTimestamp("00:01:01.500000000", t));
+    QVERIFY(qAbs(t - 61.5) < 1e-12);
+
+    QVERIFY(data_io::parseTimestamp("12:34:05.250", t));
+    QVERIFY(qAbs(t - (12.0 * 3600.0 + 34.0 * 60.0 + 5.25)) < 1e-9);
+
+    // Резерв: обычное число с плавающей точкой.
+    QVERIFY(data_io::parseTimestamp("123.456", t));
+    QCOMPARE(t, 123.456);
+
+    // Мусор — false.
+    QVERIFY(!data_io::parseTimestamp("abc", t));
+}
+
+void TestDataIo::readsNewFormatImu()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("imu.data");
+
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write("# timestamp wx wy wz ax ay az\n");
+    f.write("00:00:00.000000128\t0\t0\t0\t0\t0\t9.8\n");
+    f.write("00:01:01.500000000\t0.01\t0.02\t0.03\t1.0\t2.0\t3.0\n");
+    f.close();
+
+    data_io::ImuReader imu;
+    QVERIFY(imu.open(path.toStdString()));
+
+    std::vector<double> row;
+    QVERIFY(imu.next(row));  // первая строка после заголовка
+    QCOMPARE(row.size(), std::size_t(8));
+    QVERIFY(qAbs(row[0] - 0.000000128) < 1e-9);
+    QCOMPARE(row[1], 0.0);  // timestamp_ns для нового формата — ноль
+    QCOMPARE(row[7], 9.8);
+
+    QVERIFY(imu.next(row));
+    QCOMPARE(ins::sampleTime(row), 61.5);
+    QCOMPARE(row[2], 0.01);
+    QCOMPARE(row[4], 0.03);
+    QCOMPARE(row[5], 1.0);
+
+    QVERIFY(!imu.next(row));
+    imu.close();
+}
+
+void TestDataIo::readsNewFormatSnsAndJoinsAngles()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString gps = dir.filePath("gps.data");
+    const QString angle = dir.filePath("angle.data");
+
+    QFile fg(gps);
+    QVERIFY(fg.open(QIODevice::WriteOnly));
+    fg.write("# time lat lon alt vx vy vz\n");
+    fg.write("00:00:01.000000000\t22.5\t114.0\t100.0\t1.0\t0.0\t2.0\n");
+    fg.write("00:00:02.000000000\t22.6\t114.1\t101.0\t1.1\t0.1\t2.1\n");
+    fg.close();
+
+    QFile fa(angle);
+    QVERIFY(fa.open(QIODevice::WriteOnly));
+    // 14 столбцов: time x y z qw qx qy qz vx vy vz roll pitch yaw.
+    fa.write("# time x y z qw qx qy qz vx vy vz roll pitch yaw\n");
+    fa.write("00:00:01.000000000\t0\t0\t0\t1\t0\t0\t0\t1.0\t0\t2.0\t0.01\t0.02\t0.03\n");
+    fa.write("00:00:02.000000000\t0\t0\t0\t1\t0\t0\t0\t1.1\t0.1\t2.1\t0.11\t0.12\t0.13\n");
+    fa.close();
+
+    data_io::SnsReader sns;
+    QVERIFY(sns.open(gps.toStdString(), angle.toStdString()));
+
+    nav::SnsSample s1;
+    QVERIFY(sns.next(s1));
+    QCOMPARE(s1.time, 1.0);
+    // Градусы → радианы.
+    QVERIFY(qAbs(s1.lat - 22.5 * DEG_TO_RAD) < 1e-12);
+    QVERIFY(qAbs(s1.lon - 114.0 * DEG_TO_RAD) < 1e-12);
+    QCOMPARE(s1.alt, 100.0);
+    QVERIFY(qAbs(s1.vn - 1.0) < 1e-12);
+    QCOMPARE(s1.vh, 0.0);
+    QVERIFY(qAbs(s1.ve - 2.0) < 1e-12);
+    // Углы angle.data (колонки 11-13) трактуются как радианы.
+    QVERIFY(qAbs(s1.heading - 0.03) < 1e-12);
+    QVERIFY(qAbs(s1.pitch - 0.02) < 1e-12);
+    QVERIFY(qAbs(s1.roll - 0.01) < 1e-12);
+
+    nav::SnsSample s2;
+    QVERIFY(sns.next(s2));
+    QCOMPARE(s2.time, 2.0);
+    QVERIFY(qAbs(s2.heading - 0.13) < 1e-12);
+
+    QVERIFY(!sns.next(s2));
+    sns.close();
+}
+
+// Старый формат: файл с мусорными строками (включая байт 0x1A) должен
+// читаться в бинарном режиме, мусор — пропускаться, строки после него — читаться.
+void TestDataIo::skipsGarbageRows()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("imu.dat");
+
+    QByteArray bytes;
+    bytes += "# time wx wy wz ax ay az\n";
+    bytes += "0.0\t0\t1\t2\t3\t4\t5\t6\n";
+    // Двоичный мусор с управляющим байтом 0x1A (Ctrl-Z). Длину задаём явно:
+    // удобный байт 0x00 внутри строки обрезал бы её по strlen.
+    bytes += QByteArray("\xEA\x32\xF5\x36\x1A\x00\xFF garbage here\n", 21);
+    bytes += "1.5\t0\t7\t8\t9\t10\t11\t12\n";
+
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(bytes);
+    f.close();
+
+    data_io::ImuReader imu;
+    QVERIFY(imu.open(path.toStdString()));
+
+    std::vector<double> row;
+    QVERIFY(imu.next(row));
+    QCOMPARE(row[0], 0.0);
+
+    // После мусорной строки (и байта 0x1A) должна прийти следующая валидная.
+    QVERIFY(imu.next(row));
+    QCOMPARE(row[0], 1.5);
+    QCOMPARE(row[7], 12.0);
+
+    QVERIFY(!imu.next(row));
+    imu.close();
 }
 
 void TestDataIo::loggerWritesAllThreeFiles()

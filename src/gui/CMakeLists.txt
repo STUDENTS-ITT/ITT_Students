@@ -52,9 +52,17 @@ qt_add_executable(imitator_gui
     views/data_panel.h
     views/params_panel.cpp
     views/params_panel.h
+    views/tuning_panel.cpp
+    views/tuning_panel.h
 
     export/plot_exporter.cpp
     export/plot_exporter.h
+    export/matrices_exporter.cpp
+    export/matrices_exporter.h
+    export/animation_exporter.cpp
+    export/animation_exporter.h
+    export/gif_writer.cpp
+    export/gif_writer.h
     export/pdf_report.cpp
     export/pdf_report.h
 )
@@ -80,27 +88,39 @@ if(MSVC)
 endif()
 
 # ---------------------------------------------------------------------------
-# Headless-прогон всего GUI (окно, графики, SQLite) на штатном датасете.
+# Headless-прогон всего GUI (окно, графики, SQLite). Перед прогоном тестовый
+# набор синтезируется генератором ядра во временный каталог, поэтому smoke-тест
+# не зависит от data/raw в репозитории.
 # --self-test не показывает окно, выполняет расчёт и выходит с кодом 0/1/2,
 # отчёт с логом пишется в файл (консольный вывод GUI-приложения на Windows
 # при перенаправлении теряется).
 # ---------------------------------------------------------------------------
-if(BUILD_TESTING AND EXISTS ${CMAKE_SOURCE_DIR}/data/raw/imu.dat)
+if(BUILD_TESTING)
     set(ITT_GUI_SMOKE_DIR ${CMAKE_CURRENT_BINARY_DIR}/smoke)
+
+    add_test(NAME gui_smoke_generate COMMAND imitator_gui
+        --self-test-generate=${ITT_GUI_SMOKE_DIR}/data
+        --self-test-timeout=120)
 
     add_test(NAME gui_smoke COMMAND imitator_gui
         --self-test
         --self-test-timeout=300
         --self-test-report=${ITT_GUI_SMOKE_DIR}/report.txt
-        --data ${CMAKE_SOURCE_DIR}/data/raw
-        --output ${ITT_GUI_SMOKE_DIR})
+        --data ${ITT_GUI_SMOKE_DIR}/data
+        --output ${ITT_GUI_SMOKE_DIR}/out)
+
+    set_tests_properties(gui_smoke_generate PROPERTIES
+        FIXTURES_SETUP gui_smoke_data
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 200)
 
     set_tests_properties(gui_smoke PROPERTIES
+        FIXTURES_REQUIRED gui_smoke_data
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 400)
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
-        set_tests_properties(gui_smoke PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(gui_smoke_generate gui_smoke PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
     endif()
 endif()

@@ -7,15 +7,25 @@
 
 #include <cmath>
 
+#include <array>
+#include <vector>
+
 #include <QtTest>
 
 #include <QApplication>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QMouseEvent>
+#include <QMovie>
 #include <QPainter>
+#include <QTemporaryDir>
 #include <QWheelEvent>
 
+#include "export/animation_exporter.h"
+#include "export/plot_exporter.h"
 #include "views/plots/time_series_plot.h"
 
 using gui::PlotSeries;
@@ -70,6 +80,147 @@ int paintedPixels(const QImage &img, const QColor &background)
     return n;
 }
 
+// Небольшой независимый LZW-декодер GIF (для проверки выходного потока
+// энкодера GifWriter): возвращает число раскодированных индексов.
+int decodeGifLzwCount(const QByteArray &data, int minCodeSize)
+{
+    const int clearCode = 1 << minCodeSize;
+    const int endCode = clearCode + 1;
+    int codeSize = minCodeSize + 1;
+    int nextCode = endCode + 1;
+
+    std::array<int, 4096> prefix;
+    std::array<unsigned char, 4096> suffix;
+    for (int i = 0; i < clearCode; ++i)
+    {
+        prefix[static_cast<std::size_t>(i)] = -1;
+        suffix[static_cast<std::size_t>(i)] = static_cast<unsigned char>(i);
+    }
+
+    quint32 bitBuf = 0;
+    int bitCnt = 0;
+    int pos = 0;
+    const auto readCode = [&]() -> int {
+        while (bitCnt < codeSize)
+        {
+            if (pos >= data.size()) return -1;
+            bitBuf |= static_cast<quint32>(static_cast<unsigned char>(data[pos++])) << bitCnt;
+            bitCnt += 8;
+        }
+        const int code = static_cast<int>(bitBuf & ((quint32(1) << codeSize) - 1));
+        bitBuf >>= codeSize;
+        bitCnt -= codeSize;
+        return code;
+    };
+
+    int count = 0;
+    std::vector<unsigned char> stack;
+    int prev = -1;
+    while (true)
+    {
+        const int code = readCode();
+        if (code < 0 || code == endCode) break;
+        if (code == clearCode)
+        {
+            codeSize = minCodeSize + 1;
+            nextCode = endCode + 1;
+            prev = -1;
+            continue;
+        }
+
+        int cur = code;
+        unsigned char firstByte = 0;
+        // В корректном LZW-потоке код не превышает текущий размер словаря,
+        // кроме специального случая KwKwK (code == nextCode).
+        if (code > nextCode) break;
+        if (code == nextCode)
+        {
+            stack.push_back(static_cast<unsigned char>(cur));
+            cur = prev;
+        }
+        if (cur != -1)
+        {
+            int guard = 8192;
+            while (cur >= clearCode)
+            {
+                if (cur >= nextCode || cur < 0) break;  // повреждённый поток
+                stack.push_back(suffix[static_cast<std::size_t>(cur)]);
+                cur = prefix[static_cast<std::size_t>(cur)];
+                if (--guard == 0) break;
+            }
+            if (cur >= 0 && cur < clearCode)
+            {
+                firstByte = static_cast<unsigned char>(cur);
+                stack.push_back(firstByte);
+            }
+        }
+        count += static_cast<int>(stack.size());
+        if (prev != -1 && nextCode < 4096)
+        {
+            prefix[static_cast<std::size_t>(nextCode)] = prev;
+            suffix[static_cast<std::size_t>(nextCode)] = firstByte;
+            nextCode++;
+            if (nextCode == (1 << codeSize) && codeSize < 12) codeSize++;
+        }
+        prev = code;
+        stack.clear();
+    }
+    return count;
+}
+
+// Достать из файла GIF поток LZW первого изображения (дескриптор 0x2C,
+// локальная таблица, суб-блоки) и раскодировать его независимым декодером.
+// Возвращает число раскодированных индексов или -1 при ошибке структуры.
+int decodeFirstImageLzw(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return -1;
+    const QByteArray all = f.readAll();
+
+    // «GIF89a» (6) + логический экран (7), глобальная таблица — если есть.
+    std::size_t p = 13;
+    if (all.size() < 14) return -1;
+    {
+        const unsigned char lsdPacked = static_cast<unsigned char>(all[10]);
+        if (lsdPacked & 0x80)
+            p += static_cast<std::size_t>(3) * (1 << ((lsdPacked & 0x07) + 1));
+    }
+    while (p + 1 < all.size())
+    {
+        const unsigned char b = static_cast<unsigned char>(all[p]);
+        if (b == 0x2C) break;
+        if (b == 0x21)
+        {
+            // Блок расширения: 0x21, тип, размер, данные, 0x00.
+            p += 2;
+            while (p < all.size() && static_cast<unsigned char>(all[p]) != 0x00)
+                p += 1 + static_cast<unsigned char>(all[p]);
+            if (p < all.size()) p++;
+            continue;
+        }
+        return -1;
+    }
+    if (p + 1 >= all.size()) return -1;
+
+    p++;  // 0x2C
+    if (p + 9 > all.size()) return -1;
+    const unsigned char packed = static_cast<unsigned char>(all[p + 8]);
+    p += 9;
+    if (packed & 0x80) p += static_cast<std::size_t>(3) * (1 << ((packed & 0x07) + 1));
+    if (p >= all.size()) return -1;
+
+    const int minCode = static_cast<unsigned char>(all[p++]);
+    QByteArray lzw;
+    while (p < all.size())
+    {
+        const int n = static_cast<unsigned char>(all[p++]);
+        if (n == 0) break;
+        lzw.append(all.mid(static_cast<int>(p), n));
+        p += n;
+    }
+    return decodeGifLzwCount(lzw, minCode);
+}
+
 } // namespace
 
 class TestPlots : public QObject
@@ -89,6 +240,8 @@ private slots:
     void cacheFollowsDataChanges();
     void disabledCacheDrawsWithoutPixmap();
     void cursorDrawnOnFirstFrame();
+    void batchesExportAllPlots();
+    void animationExport();
 };
 
 void TestPlots::autoRangeFollowsData()
@@ -376,6 +529,184 @@ void TestPlots::cursorDrawnOnFirstFrame()
 
     QVERIFY2(with_cursor != without_cursor,
              "курсор должен попадать в первый кадр, а не только в кэш");
+}
+
+void TestPlots::batchesExportAllPlots()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString out = dir.filePath("борт 1");
+
+    TimeSeriesPlot a;
+    a.resize(320, 200);
+    a.setSeries(makeSeries(tr("sin"), 10.0, 1.0, 100.0, Qt::red, false));
+    TimeSeriesPlot b;
+    b.resize(320, 200);
+    b.setSeries(makeSeries(tr("cos"), 10.0, 2.0, 100.0, Qt::blue, false));
+
+    QList<gui::PlotExportItem> items;
+    items.push_back({tr("Координаты и высота"), &a});
+    items.push_back({tr("Углы"), &b});
+
+    // Имя файла = название вкладки, каталог создаётся при необходимости.
+    QString error;
+    int exported = 0;
+    QVERIFY2(gui::PlotExporter::exportAllPlots(items, out, "PNG", 0, 0, nullptr,
+                                               &exported, &error),
+             qPrintable(error));
+    QCOMPARE(exported, 2);
+    QVERIFY(QFileInfo::exists(out + "/Координаты и высота.png"));
+    QVERIFY(QFileInfo::exists(out + "/Углы.png"));
+
+    QImage img(out + "/Координаты и высота.png");
+    QVERIFY(img.width() > 0);
+    QVERIFY(img.height() > 0);
+
+    // Недопустимые в имени симвлы (и ведущие точки) подменяются на подчёркивание.
+    items[0].name = "а/б:в*?";
+    QVERIFY(gui::PlotExporter::exportAllPlots(items, out, "png", 0, 0, nullptr,
+                                              &exported, &error));
+    QCOMPARE(exported, 2);
+    QVERIFY(QFileInfo::exists(out + "/а_б_в__.png"));
+
+    // SVG тоже уходит в пакет.
+    QVERIFY(gui::PlotExporter::exportAllPlots(items, out, "svg", 0, 0, nullptr,
+                                              &exported, &error));
+    QCOMPARE(exported, 2);
+    QVERIFY(QFileInfo::exists(out + "/Углы.svg"));
+
+    // PDF — через QPdfWriter.
+    QVERIFY(gui::PlotExporter::exportAllPlots(items, out + "/под/кат", "pdf", 0, 0,
+                                              nullptr, &exported, &error));
+    QCOMPARE(exported, 2);
+    QVERIFY(QFileInfo::exists(out + "/под/кат/Углы.pdf"));
+
+    // Отмена через progress(false) — не ошибка, останавливается сразу.
+    QVERIFY(gui::PlotExporter::exportAllPlots(
+        items, out, "jpg", 0, 0, [](int done, int) { return done < 1; },
+        &exported, &error));
+    QCOMPARE(exported, 1);
+    QVERIFY(QFileInfo::exists(out + "/а_б_в__.jpg"));
+
+    // Пустой список и пустой каталог — ошибка.
+    QVERIFY(!gui::PlotExporter::exportAllPlots({}, out, "png", 0, 0, nullptr,
+                                               &exported, &error));
+}
+
+void TestPlots::animationExport()
+{
+    TimeSeriesPlot plot;
+    plot.resize(320, 200);
+    plot.setSeries(makeSeries(tr("sin"), 10.0, 1.0, 100.0, Qt::red, false));
+
+    // Рендер кадров: setup вызывается перед каждым кадром (окно растёт).
+    int setups = 0;
+    QString error;
+    const QVector<QImage> frames = gui::AnimationExporter::renderFrames(
+        &plot, 320, 200, 24,
+        [&](int frame, int total) {
+            setups++;
+            plot.setXRange(0.0, 10.0 * (frame + 1) / total);
+        },
+        nullptr, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(setups, 24);
+    QCOMPARE(frames.size(), 24);
+    QCOMPARE(frames[0].size(), QSize(320, 200));
+    QVERIFY(!frames[0].isNull());
+
+    // Отмена: progress возвращает false — рендер останавливается без ошибки.
+    int calls = 0;
+    const QVector<QImage> partial = gui::AnimationExporter::renderFrames(
+        &plot, 320, 200, 24, [&](int, int) { plot.setXRange(0.0, 10.0); },
+        [&](int, int) { return ++calls <= 12; }, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(partial.size(), 12);
+
+    // Некорректные параметры — ошибка без кадров.
+    QVector<QImage> bad =
+        gui::AnimationExporter::renderFrames(nullptr, 320, 200, 10, nullptr, nullptr, &error);
+    QVERIFY(!error.isEmpty());
+    QCOMPARE(bad.size(), 0);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    // GIF начинается с GIF89a, содержит цикл NETSCAPE2.0 и заканчивается ';'.
+    const QString gifFile = dir.filePath("anim.gif");
+    QVERIFY2(gui::AnimationExporter::writeGif(frames, gifFile, 10, &error), qPrintable(error));
+    QFile f(gifFile);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    QCOMPARE(f.read(6), QByteArray("GIF89a"));
+    QVERIFY(f.size() > 500);
+    const QByteArray rest = f.readAll();
+    QVERIFY(rest.contains("NETSCAPE2.0"));
+    QCOMPARE(QByteArray(rest.right(1)), QByteArray(";"));
+    // Мой независимый декодер должен вернуть ровно ширину*высоту первого кадра.
+    QCOMPARE(decodeFirstImageLzw(gifFile), 320 * 200);
+
+    // Qt читает GIF своим плагином — наш LZW-поток должен декодироваться.
+    // Обработчик GIF для QImageReader отдаёт только первый кадр, поэтому
+    // много-кадровость проверяем через QMovie (jumpToFrame читает кадры
+    // независимо от первого).
+    QImageReader reader(gifFile);
+    QVERIFY(reader.canRead());
+    QVERIFY(!reader.read().isNull());
+
+    QMovie movie(gifFile);
+    movie.setCacheMode(QMovie::CacheNone);
+    QVERIFY(movie.isValid());
+    int decoded = 0;
+    for (int i = 0; i < frames.size(); ++i)
+    {
+        if (!movie.jumpToFrame(i)) break;
+        decoded++;
+    }
+    QCOMPARE(decoded, frames.size());
+
+    // Пустые кадры — ошибка.
+    QVERIFY(!gui::AnimationExporter::writeGif({}, gifFile, 10, &error));
+
+    // Квантование: градиент с тысячами оттенков сводится к палитре <= 256.
+    QImage grad(200, 120, QImage::Format_RGB32);
+    for (int y = 0; y < grad.height(); ++y)
+    {
+        for (int x = 0; x < grad.width(); ++x)
+        {
+            grad.setPixel(x, y, QColor(x * 255 / (grad.width() - 1),
+                                       y * 255 / (grad.height() - 1),
+                                       (x * 31 + y * 7) % 256)
+                                   .rgb());
+        }
+    }
+    const QVector<QImage> grad_frames{grad, grad};
+    const QString gradFile = dir.filePath("gradient.gif");
+    QVERIFY2(gui::AnimationExporter::writeGif(grad_frames, gradFile, 10, &error),
+             qPrintable(error));
+    QFile gf(gradFile);
+    QVERIFY(gf.open(QIODevice::ReadOnly));
+    QCOMPARE(gf.read(6), QByteArray("GIF89a"));
+    QVERIFY(gf.size() > 1000);
+    // Проверка LZW независимым декодером: количество индексов = числу пикселей
+    // (переходы ширины 10/11/12 бит и сброс словаря по clear).
+    QCOMPARE(decodeFirstImageLzw(gradFile), grad.width() * grad.height());
+
+    QImageReader gr(gradFile);
+    QVERIFY(gr.canRead());
+    const QImage first_grad = gr.read();
+    if (first_grad.isNull())
+        qWarning("decode grad: %s", qPrintable(gr.errorString()));
+    QVERIFY(!first_grad.isNull());
+    QCOMPARE(first_grad.size(), QSize(200, 120));
+
+    // PNG-последовательность: каталог создаётся, имена выровнены нулями.
+    const QString pngDir = dir.filePath("кадры");
+    QVERIFY2(gui::AnimationExporter::writePngSequence(frames, pngDir, "frame", &error),
+             qPrintable(error));
+    const QStringList names = QDir(pngDir).entryList(QStringList{"frame*.png"}, QDir::Files);
+    QCOMPARE(names.size(), frames.size());
+    QVERIFY(names.contains("frame0001.png"));
+    QVERIFY(names.contains("frame0024.png"));
 }
 
 QTEST_MAIN(TestPlots)

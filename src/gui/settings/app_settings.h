@@ -48,6 +48,8 @@ struct AppSettings
     static QString defaultOutputDir();
     // Файл настроек по умолчанию: <каталог приложения>/settings.ini.
     static QString defaultSettingsFile();
+    // Каталог пресетов параметров по умолчанию: <каталог приложения>/presets.
+    static QString defaultPresetsDir();
 
     void saveWindowGeometry(const QMainWindow *window) const;
     void restoreWindowGeometry(QMainWindow *window) const;

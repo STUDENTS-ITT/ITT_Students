@@ -1,8 +1,8 @@
 // run_store.h — История прогонов в SQLite (QtSql).
 //
 // Схема:
-//   runs(id, name, created_at, data_dir, settings_json, steps, corrections,
-//        wall_seconds, has_angle)
+//   runs(id, name, created_at, data_dir, config_json, settings_ini, steps,
+//        corrections, wall_seconds, has_angle)
 //   samples(run_id, t, lon, lat, alt, heading, pitch, roll, vn, vh, ve)
 //   filter_errors(run_id, t, x0..x14)
 //   covariances(run_id, t, p0..p14)
@@ -63,8 +63,14 @@ public:
     QString databaseFile() const { return file_; }
 
     // Создать запись о прогоне. Возвращает id или -1 при ошибке.
+    // settingsIni — снимок параметров фильтра (текст INI, dumpFilterSettings);
+    // применяется при открытии прогона из истории.
     qint64 beginRun(const QString &name, const nav::RunSummary &summary,
-                    const QString &dataDir, const QString &configJson);
+                    const QString &dataDir, const QString &configJson,
+                    const QString &settingsIni = QString());
+
+    // Снимок параметров фильтра прогона (текст INI); пусто — прогон старый.
+    QString runSettings(qint64 runId) const;
 
     // Записать серию результатов (обычно пачками по несколько тысяч строк).
     bool appendSamples(qint64 runId, const QVector<SampleRow> &rows);

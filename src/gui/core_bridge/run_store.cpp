@@ -81,6 +81,7 @@ bool RunStore::createSchema(QString *error)
         "  created_at TEXT NOT NULL,"
         "  data_dir TEXT,"
         "  config_json TEXT,"
+        "  settings_ini TEXT,"
         "  steps INTEGER DEFAULT 0,"
         "  corrections INTEGER DEFAULT 0,"
         "  wall_seconds REAL DEFAULT 0,"
@@ -120,22 +121,50 @@ bool RunStore::createSchema(QString *error)
             return false;
         }
     }
+
+    // Миграция базы, созданной до появления settings_ini: CREATE TABLE IF NOT
+    // EXISTS для существующей таблицы ничего не делает, поэтому колонку
+    // добавляем явным ALTER TABLE по результату PRAGMA table_info.
+    bool has_settings_ini = false;
+    QSqlQuery info(db_);
+    if (info.exec("PRAGMA table_info(runs)"))
+    {
+        while (info.next())
+        {
+            if (info.value(1).toString() == QLatin1String("settings_ini"))
+            {
+                has_settings_ini = true;
+                break;
+            }
+        }
+    }
+    if (!has_settings_ini)
+    {
+        QSqlQuery alter(db_);
+        if (!alter.exec("ALTER TABLE runs ADD COLUMN settings_ini TEXT"))
+        {
+            if (error) *error = alter.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
 qint64 RunStore::beginRun(const QString &name, const nav::RunSummary &summary,
-                          const QString &dataDir, const QString &configJson)
+                          const QString &dataDir, const QString &configJson,
+                          const QString &settingsIni)
 {
     if (!isOpen()) return -1;
 
     QSqlQuery q(db_);
-    q.prepare("INSERT INTO runs (name, created_at, data_dir, config_json, steps, "
-              "corrections, wall_seconds, has_angle) "
-              "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    q.prepare("INSERT INTO runs (name, created_at, data_dir, config_json, "
+              "settings_ini, steps, corrections, wall_seconds, has_angle) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     q.addBindValue(name);
     q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
     q.addBindValue(dataDir);
     q.addBindValue(configJson);
+    q.addBindValue(settingsIni);
     q.addBindValue(static_cast<qlonglong>(summary.steps));
     q.addBindValue(static_cast<qlonglong>(summary.corrections));
     q.addBindValue(summary.wall_seconds);
@@ -143,6 +172,17 @@ qint64 RunStore::beginRun(const QString &name, const nav::RunSummary &summary,
 
     if (!q.exec()) return -1;
     return q.lastInsertId().toLongLong();
+}
+
+QString RunStore::runSettings(qint64 runId) const
+{
+    if (!isOpen()) return QString();
+
+    QSqlQuery q(db_);
+    if (!q.prepare("SELECT settings_ini FROM runs WHERE id = ?")) return QString();
+    q.addBindValue(runId);
+    if (!q.exec() || !q.next()) return QString();
+    return q.value(0).toString();
 }
 
 bool RunStore::appendSamples(qint64 runId, const QVector<SampleRow> &rows)

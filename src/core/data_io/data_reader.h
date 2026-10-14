@@ -1,17 +1,22 @@
 // data_reader.h — Последовательное чтение imu.dat, gps.dat, angle.dat.
 //
 // ImuReader:
-//   Читает imu.dat построчно, пропускает заголовок.
-//   Формат: time_s  timestamp_ns  wx  wy  wz  ax  ay  az
+//   Читает построчно, пропускает заголовок. Поддерживает два формата:
+//   Старый imu.dat:  time_s  timestamp_ns  wx  wy  wz  ax  ay  az
+//   Новый imu.data (dataset_1786981733): время ЧЧ:ММ:СС.дробь,
+//   wx  wy  wz  ax  ay  az. Внутри строка приводится к прежнему виду.
+//   Формат определяется по первому столбцу строки: ':' — новый.
 //
 // SnsReader:
-//   Читает gps.dat (обязательный) и angle.dat (опциональный).
-//   Формат gps.dat:  time_s  timestamp_ns  latitude  longitude  altitude  vx  vy  vz
-//   Формат angle.dat: time_s  timestamp_ns  roll  pitch  yaw
-//   Координаты gps.dat переводятся из градусов в радианы.
-//   Углы angle.dat задаются в градусах и переводятся в радианы (внутренняя СК — рад),
-//   стыкуются с gps по времени.
-//   Если angle.dat отсутствует — углы ориентации заполняются нулями.
+//   Читает gps.dat/gps.data (обязательный) и angle.dat/angle.data (опциональный).
+//   Старый gps.dat:  time_s  timestamp_ns  latitude  longitude  altitude  vx  vy  vz
+//   Новый gps.data:  ЧЧ:ММ:СС.дробь  latitude  longitude  altitude  vx  vy  vz
+//   (vx = Vn, vy = Vверх, vz = Ve)
+//   Старый angle.dat: time_s  timestamp_ns  roll  pitch  yaw
+//   Новый angle.data: ЧЧ:ММ:СС.дробь  x y z quat vx vy vz  roll  pitch  yaw
+//   Координаты gps переводятся из градусов в радианы.
+//   Углы angle трактуются как радианы (внутренняя СК — рад), стыкуются с gps по времени.
+//   Если angle.dat/angle.data отсутствует — углы ориентации заполняются нулями.
 
 #pragma once
 
@@ -29,6 +34,10 @@ std::vector<double> &parseLine(const std::string &line, std::vector<double> &ite
 
 // Разбор строки на строки (для SnsReader с ручным преобразованием типов).
 std::vector<std::string> splitLine(const std::string &line);
+
+// Разбор времени: "ЧЧ:ММ:СС.дробь" (например 00:01:01.500000000) или
+// обычное число с плавающей точкой. Возвращает true при успехе.
+bool parseTimestamp(const std::string &token, double &seconds);
 
 // Чтение imu.dat: построчно, заголовок пропускается при open().
 class ImuReader

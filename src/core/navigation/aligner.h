@@ -22,27 +22,35 @@ namespace nav
 // C11: P0 больше не захардкожен — калибруется по настроенным σ из kalman_cfg:
 //   pos = 2·σ_pos, alt = 2·σ_h, а курс = σ_bg / Ω_h (неснимаемое смещение гиро
 //   искажает проекцию скорости вращения Земли, Ω_h = ω_E·cos(lat)), т.е. курс
-//   определяется точностью курсовой выставки, а не свободным масштабом.
-inline Matrix initialCovariance(double lat_rad)
-{
-    const double sigma[ins::KF_STATE] = {
-        2.0 * ins::kalman_cfg.sig_pos, 2.0 * ins::kalman_cfg.sig_pos, 2.0 * ins::kalman_cfg.sig_h,
-        2.5, 2.5, 2.5,
-        ins::kalman_cfg.sig_bg / fmax(fabs(cos(lat_rad)) * U_EARTH, 1e-10), 1.0 * DEG_TO_RAD, 1.0 * DEG_TO_RAD,
-        3e-3, 3e-3, 3e-3,
-        1e-4, 1e-4, 1e-4};
-
-    const double pdiag[ins::KF_STATE] = {
-        sigma[0] * sigma[0], sigma[1] * sigma[1], sigma[2] * sigma[2],
-        sigma[3] * sigma[3], sigma[4] * sigma[4], sigma[5] * sigma[5],
-        sigma[6] * sigma[6], sigma[7] * sigma[7], sigma[8] * sigma[8],
-        sigma[9] * sigma[9], sigma[10] * sigma[10], sigma[11] * sigma[11],
-        sigma[12] * sigma[12], sigma[13] * sigma[13], sigma[14] * sigma[14]};
-
-    Matrix P0(ins::KF_STATE * ins::KF_STATE, 0);
-    for (int i = 0; i < ins::KF_STATE; i++)
-        at(P0, i, i, ins::KF_STATE) = pdiag[i];
-    return P0;
+//   определяется точностью курсовой выставки, а не свободным масштабом.
+//
+// Явная конфигурация передаётся аргументом (для экспорта/документации).
+inline Matrix initialCovariance(const ins::KalmanConfig &cfg, double lat_rad)
+{
+    const double sigma[ins::KF_STATE] = {
+        2.0 * cfg.sig_pos, 2.0 * cfg.sig_pos, 2.0 * cfg.sig_h,
+        2.5, 2.5, 2.5,
+        cfg.sig_bg / fmax(fabs(cos(lat_rad)) * U_EARTH, 1e-10), 1.0 * DEG_TO_RAD, 1.0 * DEG_TO_RAD,
+        3e-3, 3e-3, 3e-3,
+        1e-4, 1e-4, 1e-4};
+
+    const double pdiag[ins::KF_STATE] = {
+        sigma[0] * sigma[0], sigma[1] * sigma[1], sigma[2] * sigma[2],
+        sigma[3] * sigma[3], sigma[4] * sigma[4], sigma[5] * sigma[5],
+        sigma[6] * sigma[6], sigma[7] * sigma[7], sigma[8] * sigma[8],
+        sigma[9] * sigma[9], sigma[10] * sigma[10], sigma[11] * sigma[11],
+        sigma[12] * sigma[12], sigma[13] * sigma[13], sigma[14] * sigma[14]};
+
+    Matrix P0(ins::KF_STATE * ins::KF_STATE, 0);
+    for (int i = 0; i < ins::KF_STATE; i++)
+        at(P0, i, i, ins::KF_STATE) = pdiag[i];
+    return P0;
+}
+
+// P₀ по текущей (глобальной) конфигурации — поведение без изменений.
+inline Matrix initialCovariance(double lat_rad)
+{
+    return initialCovariance(ins::kalman_cfg, lat_rad);
 }
 
 inline ins::Attitude referenceAttitude(const SnsSample &first)

@@ -46,6 +46,10 @@ void applySettings(const FilterSettings &s);
 // по умолчанию. Возвращает false, если файл не открылся.
 bool loadFilterSettings(const std::string &path, FilterSettings &s);
 
+// Разобрать настройки из INI-текста (снимок параметров в истории прогонов).
+// Отсутствующие ключи сохраняют значения по умолчанию.
+bool parseFilterSettings(const std::string &iniText, FilterSettings &s);
+
 // Формат файла настроек: true — секции ([filter], [tilt], [run]),
 // false — старый плоский params.ini без секций. Нечитаемый файл считается
 // секционным (парсер сам сообщит об ошибке).

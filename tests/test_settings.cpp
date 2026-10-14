@@ -23,6 +23,7 @@ private slots:
     void settingsDefaultsMatchFilterDefaults();
     void appliesSettingsToGlobalConfig();
     void dumpsAndReloadsSettings();
+    void parsesSettingsFromText();
     void descriptorsCoverAllKeys();
     void detectsSectionsFormat();
     void appliesLegacyFlatKeys();
@@ -254,6 +255,31 @@ void TestSettings::dumpsAndReloadsSettings()
     QCOMPARE(loaded.tilt.bias_gain, 0.5);
     QCOMPARE(loaded.align_fallback_s, 45.0);
     QCOMPARE(loaded.tilt.settle_s, s.tilt.settle_s);
+}
+
+void TestSettings::parsesSettingsFromText()
+{
+    // Разбор снимка параметров из строки (колонка settings_ini в истории).
+    nav::FilterSettings s;
+    QVERIFY(nav::parseFilterSettings(
+        "[filter]\nsigma_g = 0.5\noutage_start_s = 10\n"
+        "[tilt]\nsettle_s = 0.7\n",
+        s));
+
+    QCOMPARE(s.filter.sig_g, 0.5);
+    QCOMPARE(s.filter.outage_start_s, 10.0);
+    QCOMPARE(s.tilt.settle_s, 0.7);
+    // Не упомянутое в снимке поле сохраняет значение по умолчанию.
+    QCOMPARE(s.filter.sig_a, ins::KalmanConfig{}.sig_a);
+    QCOMPARE(s.tilt.gyro_off_rad_s, nav::TiltManeuverPolicy{}.gyro_off_rad_s);
+
+    // Строка без секций (legacy) плоские ключи не применяет: как и
+    // loadFilterSettings(), parseFilterSettings() работает только с ключами
+    // "секция/ключ". Плоские ключи — отдельная консольная фича
+    // (applyLegacyParamsFile), для снимков из истории не нужна.
+    nav::FilterSettings flat;
+    QVERIFY(nav::parseFilterSettings("sigma_g = 0.25\n", flat));
+    QCOMPARE(flat.filter.sig_g, ins::KalmanConfig{}.sig_g);
 }
 
 void TestSettings::descriptorsCoverAllKeys()

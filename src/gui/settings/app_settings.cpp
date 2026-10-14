@@ -53,6 +53,12 @@ QString AppSettings::defaultSettingsFile()
     return root.filePath("settings.ini");
 }
 
+QString AppSettings::defaultPresetsDir()
+{
+    QDir root(appRootDir());
+    return root.filePath("presets");
+}
+
 QString AppSettings::defaultDatabaseFile()
 {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);

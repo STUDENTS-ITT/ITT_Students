@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "../data_io/data_reader.h"
+#include "../data_io/data_source.h"
 #include "../data_io/data_writer.h"
 #include "trajectory.h"
 
@@ -30,11 +31,16 @@ class RunPacer;
 // Параметры прогона.
 struct RunOptions
 {
-    std::string data_dir;       // каталог с imu.dat / gps.dat / angle.dat / StartupNav.ini
+    std::string data_dir;       // каталог с imu.dat/imu.data, gps.dat/gps.data,
+                                // angle.dat/angle.data, StartupNav.ini
     std::string output_dir;     // каталог для result.txt / reference.txt / errors.txt
     std::string settings_file;  // settings.ini (пусто — значения по умолчанию)
     bool write_files = true;    // писать ли файлы результатов
     bool capture_telemetry = false;  // считать ли диагонали P и инновацию z
+    // Источник входных данных. nullptr — файловый источник по data_dir.
+    // Заданный источник (например, MockDataSource) позволяет прогонять ту же
+    // математику без файлов: тесты, в будущем — поток из последовательного порта.
+    data_io::IDataSource *source = nullptr;
     RunPacer *pacer = nullptr;  // пауза и темп воспроизведения (nullptr — без ограничений)
     // Темп воспроизведения: > 0 — во столько раз медленнее реального времени,
     // 0 — считать максимально быстро (по умолчанию).

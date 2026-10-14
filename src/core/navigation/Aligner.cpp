@@ -1,5 +1,8 @@
 #include "aligner.hpp"
 
+#include <exception>
+
+#include "../data_io/data_reader.h"
 #include "../math_lib/matrix_ops.h"
 #include "../math_lib/transformations.h"
 
@@ -8,57 +11,84 @@ using namespace std;
 // Размер буфера для накопления и обработки данных поворотного блока
 constexpr int BUF_rot = 3000;
 
+// Разбор одной строки файла ИМУ для блока выставки:
+// старый формат (time_s timestamp_ns wx wy wz ax ay az, время числом) — sscanf,
+// новый формат dataset_1786981733 (ЧЧ:ММ:СС.дробь wx wy wz ax ay az) — по ':'.
+// Возвращает true при успешном разборе, иначе строку нужно пропустить.
+static bool parseAlignImuRow(const string &line, double &Time, double &Wx, double &Wy,
+                             double &Wz, double &Ax, double &Ay, double &Az)
+{
+    if (line.find(':') != string::npos)
+    {
+        const vector<string> tok = data_io::splitLine(line);
+        if (tok.size() < 7)
+        {
+            return false;
+        }
+        if (!data_io::parseTimestamp(tok[0], Time))
+        {
+            return false;
+        }
+        try
+        {
+            Wx = stod(tok[1]);
+            Wy = stod(tok[2]);
+            Wz = stod(tok[3]);
+            Ax = stod(tok[4]);
+            Ay = stod(tok[5]);
+            Az = stod(tok[6]);
+            return true;
+        }
+        catch (const std::exception &)
+        {
+            return false;
+        }
+    }
+    return sscanf(line.c_str(), "%lf %*s %lf %lf %lf %lf %lf %lf",
+                  &Time, &Wx, &Wy, &Wz, &Ax, &Ay, &Az) == 7;
+}
+
 /**
- * @brief Главная функция расчёта начальных углов ориентации (Курс, Тангаж, Крен).
+ * @brief Ядро расчёта начальных углов ориентации (Курс, Тангаж, Крен) по потоку ИМУ.
+ * @param next Поставщик строк ИМУ (time_s, wx, wy, wz, ax, ay, az); false — конец.
  * @param Yaw Указатель на результирующий курс (рыскание).
  * @param Pitch Указатель на результирующий тангаж.
  * @param Roll Указатель на результирующий крен.
  * @param ba_x Указатель на смещение акселя по X (или nullptr).
  * @param ba_y Указатель на смещение акселя по Y (или nullptr).
  * @param ba_z Указатель на смещение акселя по Z (или nullptr).
- * @param IMU_path Путь к файлу imu.dat.
  * @param lat_deg Широта места в градусах.
  * @param h Высота над уровнем моря в метрах.
  * @param iter Время окончания выставки в секундах.
+ * @param write_dump Писать ли отладочный дамп ../data/processed/Aligner.dat.
  */
-void get_angle_start(double *Yaw, double *Pitch, double *Roll,
-                     double *ba_x, double *ba_y, double *ba_z,
-                     const char *IMU_path, double lat_deg, double h, double iter)
+void alignFromImuProvider(const AlignImuProvider &next,
+                          double *Yaw, double *Pitch, double *Roll,
+                          double *ba_x, double *ba_y, double *ba_z,
+                          double lat_deg, double h, double iter, bool write_dump)
 {
 		// Формула Клеро для расчёта g
 		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
-
-		string buffer;
-
-		// Открытие файла IMU
-		ifstream file_imu(IMU_path);
-		if (!file_imu.is_open())
-		{
-				cerr << "Error opening IMU file!\n";
-				return;
-		}
-
-		// Пропуск строки заголовка
-		if (!getline(file_imu, buffer))
-		{
-				cerr << "Error reading IMU file!\n";
-				return;
-		}
 
 		// Отладочный дамп выставки. Исторический путь «../data/processed/Aligner.dat»
 		// достижим только из каталога tools, поэтому недоступность файла — не
 		// повод прерывать выставку: считаем всегда, пишем дамп по возможности.
 		string dump_path = "../data/processed/Aligner.dat";
-		ofstream graphfile_probe(dump_path, ios::app);
-		if (!graphfile_probe.is_open())
+		ofstream graphfile;
+		bool dump_enabled = false;
+		if (write_dump)
 		{
-				dump_path = "data/processed/Aligner.dat";
-		}
-		ofstream graphfile(dump_path);
-		const bool dump_enabled = graphfile.is_open();
-		if (!dump_enabled)
-		{
-				cerr << "Aligner: debug dump disabled (cannot open " << dump_path << ")\n";
+				ofstream graphfile_probe(dump_path, ios::app);
+				if (!graphfile_probe.is_open())
+				{
+						dump_path = "data/processed/Aligner.dat";
+				}
+				graphfile.open(dump_path);
+				dump_enabled = graphfile.is_open();
+				if (!dump_enabled)
+				{
+						cerr << "Aligner: debug dump disabled (cannot open " << dump_path << ")\n";
+				}
 		}
 
 		if (dump_enabled)
@@ -114,119 +144,14 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 
 		double Time, Ax, Ay, Az, Wx, Wy, Wz;
 
-		// Считывание данных
-		while(getline(file_imu, buffer))
+		// Считывание данных из потока
+		while (next(Time, Wx, Wy, Wz, Ax, Ay, Az))
 		{
-				if (sscanf(buffer.c_str(), "%lf %*s %lf %lf %lf %lf %lf %lf", &Time, &Wx, &Wy, &Wz, &Ax, &Ay, &Az) == 7)
+				if (Time > iter) // Окончание выставки
 				{
-						if (Time > iter) // Окончание выставки
+						if (count_ar > 0)
 						{
-								if (count_ar > 0)
-								{
-										// Обработка хвоста данных (остатка буфера, не заполнившего полный размер BUF_rot)
-										FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
-										EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
-										FastMedian(Ay_blc, Ay_aver_arr_temp, count_ar);
-										EMA_Filter(Ay_aver_arr_temp, Ay_aver_arr, alpha, count_ar, &last_Ay, is_first_block);
-										FastMedian(Az_blc, Az_aver_arr_temp, count_ar);
-										EMA_Filter(Az_aver_arr_temp, Az_aver_arr, alpha, count_ar, &last_Az, is_first_block);
-
-										FastMedian(Wx_blc, Wx_aver_arr_temp, count_ar);
-										EMA_Filter(Wx_aver_arr_temp, Wx_aver_arr, alpha, count_ar, &last_Wx, is_first_block);
-										FastMedian(Wy_blc, Wy_aver_arr_temp, count_ar);
-										EMA_Filter(Wy_aver_arr_temp, Wy_aver_arr, alpha, count_ar, &last_Wy, is_first_block);
-										FastMedian(Wz_blc, Wz_aver_arr_temp, count_ar);
-										EMA_Filter(Wz_aver_arr_temp, Wz_aver_arr, alpha, count_ar, &last_Wz, is_first_block);
-
-										size_t k = time_arr.size();
-										for (size_t i = 0; i < count_ar; i++)
-										{
-												size_t global_index = k - count_ar + i;
-
-												// Расчёт глобальных средних значений ускорений и угловых скоростей
-												double Ax_mean = Ax_sm / total_samples;
-												double Ay_mean = Ay_sm / total_samples;
-												double Az_mean = Az_sm / total_samples;
-
-												double Wx_mean = Wx_sm / total_samples;
-												double Wy_mean = Wy_sm / total_samples;
-												double Wz_mean = Wz_sm / total_samples;
-
-												// Вычисление сглаженных углов (тангаж и крен по акселерометру)
-												double ax_norm_sm = Ax_mean / g;
-												if (ax_norm_sm > 1.0) ax_norm_sm = 1.0;
-												if (ax_norm_sm < -1.0) ax_norm_sm = -1.0;
-
-												double pitch_smooth = asin(ax_norm_sm);
-												double roll_smooth = atan2(-Az_mean, Ay_mean);
-
-												// Проекции угловой скорости Земли для расчёта курса (Yaw)
-												double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
-												double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
-												double yaw_smooth = atan2(-We_sm, Wn_sm);
-
-												// Сырые углы
-												double raw_ax_norm = Ax_arr[global_index] / g;
-												if (raw_ax_norm > 1.0) raw_ax_norm = 1.0;
-												if (raw_ax_norm < -1.0) raw_ax_norm = -1.0;
-												
-												double raw_pitch = asin(raw_ax_norm);
-												double raw_roll = atan2(-Az_arr[global_index], Ay_arr[global_index]);
-
-												double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
-												double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
-												double raw_yaw = atan2(-raw_We, raw_Wn);
-
-												// Рекурсивное обновление среднего углов
-												final_angles_count++;
-												update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
-												update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
-												update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
-
-												char line_buf[512];
-												snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
-												if (dump_enabled) graphfile << line_buf;
-										}
-								}
-								break;
-						}
-
-						// Считываем данные в массив
-						time_arr.push_back(Time);
-						Ax_arr.push_back(Ax);
-						Ay_arr.push_back(Ay);
-						Az_arr.push_back(Az);
-						Wx_arr.push_back(Wx);
-						Wy_arr.push_back(Wy);
-						Wz_arr.push_back(Wz);
-
-						// Накопление сумм для расчёта средних значений
-						Ax_sm += Ax;
-						Ay_sm += Ay;
-						Az_sm += Az;
-
-						Wx_sm += Wx;
-						Wy_sm += Wy;
-						Wz_sm += Wz;
-
-						total_samples++;
-
-						// Заполнение блоков для медианной фильтрации
-						if (count_ar < BUF_rot)
-						{
-								Ax_blc[count_ar] = Ax;
-								Ay_blc[count_ar] = Ay;
-								Az_blc[count_ar] = Az;
-								Wx_blc[count_ar] = Wx;
-								Wy_blc[count_ar] = Wy;
-								Wz_blc[count_ar] = Wz;
-						}
-
-						count_ar++;
-
-						// Если буфер заполнен полностью, производим его фильтрацию и расчёт
-						if (count_ar == BUF_rot)
-						{
+								// Обработка хвоста данных (остатка буфера, не заполнившего полный размер BUF_rot)
 								FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
 								EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
 								FastMedian(Ay_blc, Ay_aver_arr_temp, count_ar);
@@ -241,13 +166,12 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 								FastMedian(Wz_blc, Wz_aver_arr_temp, count_ar);
 								EMA_Filter(Wz_aver_arr_temp, Wz_aver_arr, alpha, count_ar, &last_Wz, is_first_block);
 
-								is_first_block = 0;
-
 								size_t k = time_arr.size();
-								for (size_t i = 0; i < BUF_rot; i++)
+								for (size_t i = 0; i < count_ar; i++)
 								{
-										size_t global_index = k - BUF_rot + i;
+										size_t global_index = k - count_ar + i;
 
+										// Расчёт глобальных средних значений ускорений и угловых скоростей
 										double Ax_mean = Ax_sm / total_samples;
 										double Ay_mean = Ay_sm / total_samples;
 										double Az_mean = Az_sm / total_samples;
@@ -256,6 +180,7 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double Wy_mean = Wy_sm / total_samples;
 										double Wz_mean = Wz_sm / total_samples;
 
+										// Вычисление сглаженных углов (тангаж и крен по акселерометру)
 										double ax_norm_sm = Ax_mean / g;
 										if (ax_norm_sm > 1.0) ax_norm_sm = 1.0;
 										if (ax_norm_sm < -1.0) ax_norm_sm = -1.0;
@@ -263,10 +188,12 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double pitch_smooth = asin(ax_norm_sm);
 										double roll_smooth = atan2(-Az_mean, Ay_mean);
 
+										// Проекции угловой скорости Земли для расчёта курса (Yaw)
 										double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
 										double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
 										double yaw_smooth = atan2(-We_sm, Wn_sm);
 
+										// Сырые углы
 										double raw_ax_norm = Ax_arr[global_index] / g;
 										if (raw_ax_norm > 1.0) raw_ax_norm = 1.0;
 										if (raw_ax_norm < -1.0) raw_ax_norm = -1.0;
@@ -278,6 +205,7 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
 										double raw_yaw = atan2(-raw_We, raw_Wn);
 
+										// Рекурсивное обновление среднего углов
 										final_angles_count++;
 										update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
 										update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
@@ -287,12 +215,110 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
 										if (dump_enabled) graphfile << line_buf;
 								}
-								count_ar = 0; // Сброс счётчика буфера для следующей порции
 						}
+						break;
+				}
+
+				// Считываем данные в массив
+				time_arr.push_back(Time);
+				Ax_arr.push_back(Ax);
+				Ay_arr.push_back(Ay);
+				Az_arr.push_back(Az);
+				Wx_arr.push_back(Wx);
+				Wy_arr.push_back(Wy);
+				Wz_arr.push_back(Wz);
+
+				// Накопление сумм для расчёта средних значений
+				Ax_sm += Ax;
+				Ay_sm += Ay;
+				Az_sm += Az;
+
+				Wx_sm += Wx;
+				Wy_sm += Wy;
+				Wz_sm += Wz;
+
+				total_samples++;
+
+				// Заполнение блоков для медианной фильтрации
+				if (count_ar < BUF_rot)
+				{
+						Ax_blc[count_ar] = Ax;
+						Ay_blc[count_ar] = Ay;
+						Az_blc[count_ar] = Az;
+						Wx_blc[count_ar] = Wx;
+						Wy_blc[count_ar] = Wy;
+						Wz_blc[count_ar] = Wz;
+				}
+
+				count_ar++;
+
+				// Если буфер заполнен полностью, производим его фильтрацию и расчёт
+				if (count_ar == BUF_rot)
+				{
+						FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
+						EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
+						FastMedian(Ay_blc, Ay_aver_arr_temp, count_ar);
+						EMA_Filter(Ay_aver_arr_temp, Ay_aver_arr, alpha, count_ar, &last_Ay, is_first_block);
+						FastMedian(Az_blc, Az_aver_arr_temp, count_ar);
+						EMA_Filter(Az_aver_arr_temp, Az_aver_arr, alpha, count_ar, &last_Az, is_first_block);
+
+						FastMedian(Wx_blc, Wx_aver_arr_temp, count_ar);
+						EMA_Filter(Wx_aver_arr_temp, Wx_aver_arr, alpha, count_ar, &last_Wx, is_first_block);
+						FastMedian(Wy_blc, Wy_aver_arr_temp, count_ar);
+						EMA_Filter(Wy_aver_arr_temp, Wy_aver_arr, alpha, count_ar, &last_Wy, is_first_block);
+						FastMedian(Wz_blc, Wz_aver_arr_temp, count_ar);
+						EMA_Filter(Wz_aver_arr_temp, Wz_aver_arr, alpha, count_ar, &last_Wz, is_first_block);
+
+						is_first_block = 0;
+
+						size_t k = time_arr.size();
+						for (size_t i = 0; i < BUF_rot; i++)
+						{
+								size_t global_index = k - BUF_rot + i;
+
+								double Ax_mean = Ax_sm / total_samples;
+								double Ay_mean = Ay_sm / total_samples;
+								double Az_mean = Az_sm / total_samples;
+
+								double Wx_mean = Wx_sm / total_samples;
+								double Wy_mean = Wy_sm / total_samples;
+								double Wz_mean = Wz_sm / total_samples;
+
+								double ax_norm_sm = Ax_mean / g;
+								if (ax_norm_sm > 1.0) ax_norm_sm = 1.0;
+								if (ax_norm_sm < -1.0) ax_norm_sm = -1.0;
+
+								double pitch_smooth = asin(ax_norm_sm);
+								double roll_smooth = atan2(-Az_mean, Ay_mean);
+
+								double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
+								double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
+								double yaw_smooth = atan2(-We_sm, Wn_sm);
+
+								double raw_ax_norm = Ax_arr[global_index] / g;
+								if (raw_ax_norm > 1.0) raw_ax_norm = 1.0;
+								if (raw_ax_norm < -1.0) raw_ax_norm = -1.0;
+								
+								double raw_pitch = asin(raw_ax_norm);
+								double raw_roll = atan2(-Az_arr[global_index], Ay_arr[global_index]);
+
+								double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
+								double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
+								double raw_yaw = atan2(-raw_We, raw_Wn);
+
+								final_angles_count++;
+								update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
+								update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
+								update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
+
+								char line_buf[512];
+								snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
+								if (dump_enabled) graphfile << line_buf;
+						}
+						count_ar = 0; // Сброс счётчика буфера для следующей порции
 				}
 		}
 
-		file_imu.close();
 		if (dump_enabled) graphfile.close();
 
 		// Записываем накопленные средние значения в выходные параметры
@@ -315,4 +341,59 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 				*ba_y = ay_mean - f_expected[1];
 				*ba_z = az_mean - f_expected[2];
 		}
+}
+
+/**
+ * @brief Выставка по файлу ИМУ (обёртка над alignFromImuProvider).
+ * @param Yaw Указатель на результирующий курс (рыскание).
+ * @param Pitch Указатель на результирующий тангаж.
+ * @param Roll Указатель на результирующий крен.
+ * @param ba_x Указатель на смещение акселя по X (или nullptr).
+ * @param ba_y Указатель на смещение акселя по Y (или nullptr).
+ * @param ba_z Указатель на смещение акселя по Z (или nullptr).
+ * @param IMU_path Путь к файлу imu.dat.
+ * @param lat_deg Широта места в градусах.
+ * @param h Высота над уровнем моря в метрах.
+ * @param iter Время окончания выставки в секундах.
+ */
+void get_angle_start(double *Yaw, double *Pitch, double *Roll,
+                     double *ba_x, double *ba_y, double *ba_z,
+                     const char *IMU_path, double lat_deg, double h, double iter)
+{
+		// Открытие файла IMU. Бинарный режим — чтобы байт 0x1A в повреждённых
+		// наборах (мусор в imu.dat) не обрезал чтение в текстовом режиме CRT.
+		ifstream file_imu(IMU_path, ios::in | ios::binary);
+		if (!file_imu.is_open())
+		{
+				cerr << "Error opening IMU file!\n";
+				return;
+		}
+
+		// Пропуск строки заголовка
+		string buffer;
+		if (!getline(file_imu, buffer))
+		{
+				cerr << "Error reading IMU file!\n";
+				return;
+		}
+
+		AlignImuProvider provider = [&file_imu](double &Time, double &Wx, double &Wy,
+		                                        double &Wz, double &Ax, double &Ay,
+		                                        double &Az) -> bool
+		{
+				string line;
+				while (getline(file_imu, line))
+				{
+						if (parseAlignImuRow(line, Time, Wx, Wy, Wz, Ax, Ay, Az))
+						{
+								return true;
+						}
+				}
+				return false;
+		};
+
+		alignFromImuProvider(provider, Yaw, Pitch, Roll, ba_x, ba_y, ba_z,
+		                     lat_deg, h, iter, true);
+
+		file_imu.close();
 }

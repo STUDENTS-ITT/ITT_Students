@@ -7,6 +7,7 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <functional>
 #include <iomanip>
 #include "../math_lib/constants.hpp"
 
@@ -155,5 +156,21 @@ inline void update_recursive_mean(double& current_mean, double new_val, long n)
 void get_angle_start(double *Yaw, double *Pitch, double *Roll,
                      double *ba_x, double *ba_y, double *ba_z,
                      const char *IMU_path, double lat_deg, double h, double iter);
+
+// Поставщик строк ИМУ для выставки: заполняет поля очередной строки
+// (time_s, wx, wy, wz, ax, ay, az) и возвращает false в конце потока.
+// Позволяет прогонять выставку по любому источнику (файл, память), а не только
+// по пути к imu.dat.
+using AlignImuProvider = std::function<bool(double &Time, double &Wx, double &Wy,
+                                            double &Wz, double &Ax, double &Ay,
+                                            double &Az)>;
+
+// Ядро выставки по потоку строк ИМУ. write_dump — писать ли отладочный дамп
+// ../data/processed/Aligner.dat.
+void alignFromImuProvider(const AlignImuProvider &next,
+                          double *Yaw, double *Pitch, double *Roll,
+                          double *ba_x, double *ba_y, double *ba_z,
+                          double lat_deg, double h, double iter,
+                          bool write_dump = true);
 
 #endif

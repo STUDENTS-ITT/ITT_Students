@@ -8,13 +8,27 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QFormLayout>
+#include <QFutureWatcher>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QLabel>
+#include <QLineEdit>
+#include <QProgressDialog>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -23,10 +37,15 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QtConcurrent>
 
 #include "core/utils/constants.h"
+#include "core/data_io/dataset_generator.h"
+#include "core/navigation/simulation.h"
 #include "export/pdf_report.h"
 #include "export/plot_exporter.h"
+#include "export/animation_exporter.h"
+#include "export/matrices_exporter.h"
 #include "models/history_model.h"
 #include "models/nav_table_model.h"
 #include "models/params_table_model.h"
@@ -37,6 +56,7 @@
 #include "views/plots/time_series_plot.h"
 #include "views/plots/trajectory_plot.h"
 #include "views/state_panel.h"
+#include "views/tuning_panel.h"
 #include "workers/simulation_worker.h"
 
 namespace gui
@@ -232,6 +252,15 @@ MainWindow::MainWindow(const AppSettings &settings, bool autostart, QWidget *par
     refresh_timer_->start(kRefreshMs);
 
     statusBar()->showMessage(tr("Готово"));
+
+    // Счётчики кэша кадров графиков — постоянная метка справа в строке
+    // состояния, обновляется раз в полсекунды.
+    cache_status_label_ = new QLabel(this);
+    statusBar()->addPermanentWidget(cache_status_label_);
+    cache_timer_ = new QTimer(this);
+    connect(cache_timer_, &QTimer::timeout, this, &MainWindow::onUpdateCacheStatus);
+    cache_timer_->start(500);
+    onUpdateCacheStatus();
     log_->append(tr("imitator_gui: ядро ESKF подключено, Qt %1")
                      .arg(QString::fromLatin1(qVersion())));
     log_->append(tr("Каталог данных: %1").arg(settings_.data_dir));
@@ -301,6 +330,10 @@ void MainWindow::buildUi()
     params_.reset(new ParamsPanel);
     right->addTab(params_.data(), tr("Параметры"));
 
+    tuning_.reset(new TuningPanel);
+    tuning_->setDataDir(settings_.data_dir);
+    right->addTab(tuning_.data(), tr("Подбор"));
+
     log_.reset(new LogPanel);
     right->addTab(log_.data(), tr("Лог"));
 
@@ -332,16 +365,24 @@ void MainWindow::buildActions()
     run_menu->addAction(load_settings);
     QAction *save_settings = new QAction(tr("Сохранить settings.ini"), this);
     run_menu->addAction(save_settings);
+    QAction *save_settings_as = new QAction(tr("Сохранить settings.ini как…"), this);
+    run_menu->addAction(save_settings_as);
     run_menu->addSeparator();
     QAction *reset_params = new QAction(tr("Сбросить параметры к умолчаниям"), this);
     run_menu->addAction(reset_params);
     QAction *apply_params = new QAction(tr("Применить параметры к фильтру"), this);
     run_menu->addAction(apply_params);
 
+    run_menu->addSeparator();
+    QAction *gen_dataset = new QAction(tr("Сгенерировать тестовые данные..."), this);
+    run_menu->addAction(gen_dataset);
+
     connect(load_settings, &QAction::triggered, this, &MainWindow::onLoadSettingsFile);
     connect(save_settings, &QAction::triggered, this, &MainWindow::onSaveSettingsFile);
+    connect(save_settings_as, &QAction::triggered, this, &MainWindow::onSaveSettingsAs);
     connect(reset_params, &QAction::triggered, this, &MainWindow::onResetParams);
     connect(apply_params, &QAction::triggered, this, &MainWindow::onApplyParams);
+    connect(gen_dataset, &QAction::triggered, this, &MainWindow::onGenerateDataset);
 
     // --- Меню «Сравнение» (план 2.4) ---
     QMenu *compare_menu = menuBar()->addMenu(tr("&Сравнение"));
@@ -374,6 +415,12 @@ void MainWindow::buildActions()
     view_menu->addAction(theme_action_);
     connect(theme_action_, &QAction::toggled, this, &MainWindow::onToggleTheme);
 
+    cache_action_ = new QAction(tr("Кэш кадров графиков"), this);
+    cache_action_->setCheckable(true);
+    cache_action_->setChecked(true);
+    view_menu->addAction(cache_action_);
+    connect(cache_action_, &QAction::toggled, this, &MainWindow::onToggleCache);
+
     // --- Меню «Экспорт» ---
     QMenu *export_menu = menuBar()->addMenu(tr("&Экспорт"));
 
@@ -385,6 +432,14 @@ void MainWindow::buildActions()
     export_menu->addAction(export_pdf);
     QAction *export_csv = new QAction(tr("Таблица результатов в CSV…"), this);
     export_menu->addAction(export_csv);
+    QAction *export_series_csv = new QAction(tr("Данные активного графика в CSV…"), this);
+    export_menu->addAction(export_series_csv);
+    QAction *export_matrices = new QAction(tr("Матрицы фильтра (Q/R/P0/H)…"), this);
+    export_menu->addAction(export_matrices);
+    QAction *export_all = new QAction(tr("Все графики…"), this);
+    export_menu->addAction(export_all);
+    QAction *export_animation = new QAction(tr("Анимация…"), this);
+    export_menu->addAction(export_animation);
     QAction *save_log = new QAction(tr("Лог в файл…"), this);
     export_menu->addAction(save_log);
 
@@ -392,6 +447,10 @@ void MainWindow::buildActions()
     connect(export_svg, &QAction::triggered, this, &MainWindow::onExportSvg);
     connect(export_pdf, &QAction::triggered, this, &MainWindow::onExportPdf);
     connect(export_csv, &QAction::triggered, this, &MainWindow::onExportCsv);
+    connect(export_series_csv, &QAction::triggered, this, &MainWindow::onExportSeriesCsv);
+    connect(export_matrices, &QAction::triggered, this, &MainWindow::onExportMatrices);
+    connect(export_all, &QAction::triggered, this, &MainWindow::onExportAllPlots);
+    connect(export_animation, &QAction::triggered, this, &MainWindow::onExportAnimation);
 
     export_menu->addSeparator();
     export_report_action_ = new QAction(tr("Сводный отчёт в PDF…"), this);
@@ -464,10 +523,16 @@ void MainWindow::connectSignals()
     connect(data_.data(), &DataPanel::dataDirChanged, this, [this](const QString &dir) {
         settings_.data_dir = dir;
         control_->setSettings(settings_);
+        tuning_->setDataDir(dir);
     });
 
     connect(params_.data(), &ParamsPanel::settingsEdited, this, &MainWindow::onSettingsChanged);
     connect(params_.data(), &ParamsPanel::runSelected, this, &MainWindow::onOpenRun);
+
+    connect(tuning_.data(), &TuningPanel::logMessage, this, &MainWindow::onTuningLog);
+    connect(tuning_.data(), &TuningPanel::applyPresetRequested, this,
+            &MainWindow::onApplyTuningPreset);
+    connect(tuning_.data(), &TuningPanel::tuningFinished, this, &MainWindow::onTuningFinished);
 
     connect(plot_tabs_, &QTabWidget::currentChanged, this, &MainWindow::onSelectPlot);
 }
@@ -642,7 +707,12 @@ void MainWindow::onWorkerFinished(bool ok, const QString &message)
         const QString name = QString("%1  %2")
                                  .arg(QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm:ss"),
                                       settings_.data_dir);
-        current_run_id_ = store_.beginRun(name, summary, settings_.data_dir, QString());
+        // Снимок параметров фильтра: применённые в этом прогоне значения
+        // (таблица) сериализуются в INI и восстанавливаются при открытии.
+        const QString settings_ini =
+            QString::fromStdString(nav::dumpFilterSettings(params_->currentSettings()));
+        current_run_id_ =
+            store_.beginRun(name, summary, settings_.data_dir, QString(), settings_ini);
         if (current_run_id_ > 0)
         {
             store_.appendSamples(current_run_id_, samples);
@@ -1226,8 +1296,10 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab)
     }
 }
 
-void MainWindow::updateTrajectory()
+void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref)
 {
+    nav->clear();
+    ref->clear();
     if (series_.rows.empty()) return;
 
     // Точка отсчёта — из StartupNav.ini (или первый результат, если INI нет).
@@ -1241,9 +1313,6 @@ void MainWindow::updateTrajectory()
     const double lat0 = start_lat_ * DEG_TO_RAD;
     const double lon0 = start_lon_ * DEG_TO_RAD;
 
-    QVector<QPointF> nav;
-    QVector<QPointF> ref;
-
     // Шаг прореживания: на экране всё равно не видно больше ~2000 точек.
     const std::size_t total = series_.rows.size();
     const std::size_t step = std::max<std::size_t>(1, total / kMaxPlotPoints);
@@ -1254,14 +1323,14 @@ void MainWindow::updateTrajectory()
         const double d_n = (r.result[RunSeries::Lat] * DEG_TO_RAD - lat0) * R_EARTH;
         const double d_e = (r.result[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH *
                            std::cos(lat0);
-        nav.push_back(QPointF(d_e, d_n));
+        nav->push_back(QPointF(d_e, d_n));
 
         if (r.has_reference)
         {
             const double rn = (r.reference[RunSeries::Lat] * DEG_TO_RAD - lat0) * R_EARTH;
             const double re = (r.reference[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH *
                               std::cos(lat0);
-            ref.push_back(QPointF(re, rn));
+            ref->push_back(QPointF(re, rn));
         }
     }
 
@@ -1272,8 +1341,17 @@ void MainWindow::updateTrajectory()
         const double d_n = (r.result[RunSeries::Lat] * DEG_TO_RAD - lat0) * R_EARTH;
         const double d_e = (r.result[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH *
                            std::cos(lat0);
-        nav.push_back(QPointF(d_e, d_n));
+        nav->push_back(QPointF(d_e, d_n));
     }
+}
+
+void MainWindow::updateTrajectory()
+{
+    if (series_.rows.empty()) return;
+
+    QVector<QPointF> nav;
+    QVector<QPointF> ref;
+    buildTrajectoryPoints(&nav, &ref);
 
     plot_trajectory_->setNavPoints(nav);
     plot_trajectory_->setReferencePoints(ref);
@@ -1292,6 +1370,57 @@ PlotView *MainWindow::currentPlot() const
 {
     if (plot_tabs_ == nullptr) return nullptr;
     return qobject_cast<PlotView *>(plot_tabs_->currentWidget());
+}
+
+QList<PlotView *> MainWindow::allPlots() const
+{
+    QList<PlotView *> plots;
+    if (plot_tabs_ == nullptr) return plots;
+    for (int i = 0; i < plot_tabs_->count(); ++i)
+    {
+        PlotView *plot = qobject_cast<PlotView *>(plot_tabs_->widget(i));
+        if (plot != nullptr) plots.push_back(plot);
+    }
+    return plots;
+}
+
+void MainWindow::cacheCounters(quint64 *hits, quint64 *misses) const
+{
+    quint64 h = 0, m = 0;
+    const auto plots = allPlots();
+    for (const PlotView *plot : plots)
+    {
+        h += plot->cacheHits();
+        m += plot->cacheMisses();
+    }
+    if (hits) *hits = h;
+    if (misses) *misses = m;
+}
+
+void MainWindow::onToggleCache(bool on)
+{
+    const auto plots = allPlots();
+    for (PlotView *plot : plots) plot->setCacheEnabled(on);
+    onUpdateCacheStatus();
+}
+
+void MainWindow::onUpdateCacheStatus()
+{
+    if (cache_status_label_ == nullptr) return;
+
+    quint64 hits = 0, misses = 0;
+    cacheCounters(&hits, &misses);
+
+    quint64 total = hits + misses;
+    const int percent = total > 0 ? static_cast<int>((100 * hits) / total) : 0;
+    const QString state = cache_action_ != nullptr && cache_action_->isChecked()
+                              ? tr("вкл")
+                              : tr("выкл");
+    cache_status_label_->setText(tr("кэш %1: %2/%3 (%4%)")
+                                     .arg(state)
+                                     .arg(hits)
+                                     .arg(misses)
+                                     .arg(percent));
 }
 
 void MainWindow::onResetZoom()
@@ -1341,7 +1470,7 @@ void MainWindow::onSaveSettingsFile()
 {
     if (settings_.settings_file.isEmpty())
     {
-        onLoadSettingsFile();
+        onSaveSettingsAs();
         return;
     }
 
@@ -1352,6 +1481,28 @@ void MainWindow::onSaveSettingsFile()
         return;
     }
     log_->append(tr("Параметры сохранены в %1").arg(settings_.settings_file));
+}
+
+void MainWindow::onSaveSettingsAs()
+{
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Сохранить параметры как"),
+        settings_.settings_file.isEmpty() ? gui::AppSettings::defaultSettingsFile()
+                                          : settings_.settings_file,
+        tr("INI-файлы (*.ini);;Все файлы (*)"));
+    if (path.isEmpty()) return;
+
+    QString error;
+    if (!params_->saveSettings(path, &error))
+    {
+        QMessageBox::warning(this, tr("Параметры"), error);
+        return;
+    }
+
+    settings_.settings_file = path;
+    control_->setSettings(settings_);
+    saveSettings();
+    log_->append(tr("Параметры сохранены в %1").arg(path));
 }
 
 void MainWindow::onResetParams()
@@ -1371,6 +1522,36 @@ void MainWindow::onApplyParams()
 {
     params_model_->applyToCore();
     log_->append(tr("Параметры применены к фильтру"));
+}
+
+// ------------------------------------------------------------ Подбор
+
+void MainWindow::onApplyTuningPreset(const QString &path)
+{
+    QString error;
+    if (!params_->loadSettings(path, &error))
+    {
+        QMessageBox::warning(this, tr("Подбор"), error);
+        return;
+    }
+
+    // Таблица параметров обновлена; применяем к ядру и сохраняем как
+    // settings.ini, чтобы следующий прогон шёл с подобранными коэффициентами.
+    params_->applyToCore();
+    saveSettings();
+    log_->append(tr("Подобранный пресет применён: %1").arg(path));
+}
+
+void MainWindow::onTuningLog(const QString &text, int level)
+{
+    log_->append(text, level);
+}
+
+void MainWindow::onTuningFinished(bool ok)
+{
+    statusBar()->showMessage(ok ? tr("Подбор завершён")
+                                : tr("Подбор завершился с ошибкой"),
+                             ok ? 10000 : 0);
 }
 
 // ------------------------------------------------------------ Экспорт
@@ -1501,6 +1682,341 @@ void MainWindow::onExportCsv()
     log_->append(tr("Таблица сохранена: %1").arg(path));
 }
 
+void MainWindow::onExportSeriesCsv()
+{
+    if (series_.rows.empty())
+    {
+        QMessageBox::information(this, tr("Экспорт"),
+                                 tr("Нет данных: сначала выполните прогон "
+                                    "или откройте его из истории"));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Сохранить данные активного графика"), settings_.output_dir + "/series.csv",
+        tr("CSV (*.csv)"));
+    if (path.isEmpty()) return;
+
+    QString error;
+    if (!PlotExporter::exportSeriesCsv(series_, path, &error))
+    {
+        QMessageBox::warning(this, tr("Экспорт"), error);
+        return;
+    }
+    log_->append(tr("Ряд сохранён: %1").arg(path));
+}
+
+// Экспорт статических матриц фильтра (Q/R/P0/H) для текущего датасета:
+// σ берутся из таблицы параметров, широта — из StartupNav.ini, шаг T —
+// медиана интервалов между отсчётами ИМУ. Работает для любого набора данных.
+void MainWindow::onExportMatrices()
+{
+    const QString start_dir =
+        settings_.output_dir.isEmpty() ? settings_.data_dir : settings_.output_dir;
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, tr("Каталог для экспорта матриц"), start_dir);
+    if (dir.isEmpty())
+        return;
+
+    QString error;
+    if (!exportMatricesTo(dir, &error))
+    {
+        QMessageBox::warning(this, tr("Экспорт матриц"), error);
+        return;
+    }
+
+    log_->append(tr("Матрицы фильтра (Q/R/P0/H) сохранены в %1").arg(dir));
+    statusBar()->showMessage(tr("Матрицы фильтра (Q/R/P0/H) экспортированы"), 8000);
+}
+
+bool MainWindow::exportMatricesTo(const QString &dir, QString *error)
+{
+    if (dir.isEmpty())
+    {
+        if (error) *error = tr("Каталог для экспорта не задан");
+        return false;
+    }
+
+    // Настройки фильтра — как в таблице «Параметры».
+    const nav::FilterSettings filter_settings = params_model_->settings();
+
+    // Имя датасета, широта начальной точки и шаг дискретизации.
+    QString dataset = tr("dataset");
+    if (!settings_.data_dir.isEmpty())
+    {
+        const QString dir_name = QDir(settings_.data_dir).dirName();
+        if (!dir_name.isEmpty())
+            dataset = dir_name;
+    }
+
+    double lat_deg = 0.0;
+    double T = IMU_PERIOD;
+    readDatasetParameters(settings_.data_dir, &lat_deg, &T);
+
+    // Имя файлов: недопустимые в имени символы заменяем подчёркиванием.
+    QString base = QStringLiteral("matrices_") + dataset;
+    base.replace(QRegularExpression(QStringLiteral("[^0-9A-Za-zА-Яа-я_-]+")),
+                 QStringLiteral("_"));
+
+    const FilterMatrices matrices =
+        buildFilterMatrices(filter_settings, dataset, lat_deg, T);
+    return writeFilterMatrices(matrices, dir, base, error);
+}
+
+void MainWindow::onExportAllPlots()
+{
+    const QList<PlotView *> plots = allPlots();
+    if (plots.isEmpty())
+    {
+        QMessageBox::information(this, tr("Экспорт"), tr("Нет графиков"));
+        return;
+    }
+
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, tr("Каталог для экспорта всех графиков"), settings_.output_dir);
+    if (dir.isEmpty()) return;
+
+    bool ok = false;
+    const QString format = QInputDialog::getItem(
+        this, tr("Формат экспорта"), tr("Формат:"),
+        QStringList{tr("PNG"), tr("JPG"), tr("SVG"), tr("PDF")}, 0, false, &ok);
+    if (!ok) return;
+
+    QList<PlotExportItem> items;
+    items.reserve(plots.size());
+    for (int i = 0; i < plot_tabs_->count(); ++i)
+    {
+        PlotView *plot = qobject_cast<PlotView *>(plot_tabs_->widget(i));
+        if (plot != nullptr) items.push_back({plot_tabs_->tabText(i), plot});
+    }
+
+    QProgressDialog progress(tr("Экспорт графиков…"), tr("Отмена"), 0, items.size(), this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+
+    QString error;
+    int exported = 0;
+    const bool all_ok = PlotExporter::exportAllPlots(
+        items, dir, format.toLower(),
+        settings_.export_width, settings_.export_height,
+        [&progress, &items](int done, int total) {
+            progress.setValue(done);
+            if (done < total) progress.setLabelText(items[done].name);
+            return !progress.wasCanceled();
+        },
+        &exported, &error);
+    progress.setValue(items.size());
+
+    if (!all_ok)
+    {
+        QMessageBox::warning(this, tr("Экспорт"), error);
+        return;
+    }
+    if (exported == 0)
+    {
+        QMessageBox::information(this, tr("Экспорт"), tr("Экспорт прерван"));
+        return;
+    }
+    log_->append(tr("Экспортировано графиков: %1 → %2").arg(exported).arg(dir));
+}
+
+// Экспорт анимации активной вкладки: GIF или последовательность PNG.
+void MainWindow::onExportAnimation()
+{
+    PlotView *plot = currentPlot();
+    if (plot == nullptr || series_.rows.empty())
+    {
+        QMessageBox::information(this, tr("Экспорт анимации"),
+                                 tr("Нет данных: сначала выполните прогон или откройте его из истории"));
+        return;
+    }
+
+    const double t0 = series_.timeMin();
+    const double t1 = series_.timeMax();
+
+    // --- Параметры ---
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Экспорт анимации"));
+    QFormLayout *form = new QFormLayout(&dlg);
+
+    QComboBox *format_box = new QComboBox(&dlg);
+    format_box->addItem(tr("GIF-файл"), QStringLiteral("gif"));
+    format_box->addItem(tr("PNG-кадры (в каталог)"), QStringLiteral("png"));
+
+    QSpinBox *fps_box = new QSpinBox(&dlg);
+    fps_box->setRange(1, 60);
+    fps_box->setValue(10);
+
+    QSpinBox *frames_box = new QSpinBox(&dlg);
+    frames_box->setRange(2, 500);
+    frames_box->setValue(60);
+
+    QSpinBox *width_box = new QSpinBox(&dlg);
+    width_box->setRange(64, 4096);
+    width_box->setValue(settings_.export_width);
+
+    QSpinBox *height_box = new QSpinBox(&dlg);
+    height_box->setRange(64, 4096);
+    height_box->setValue(settings_.export_height);
+
+    QComboBox *window_box = new QComboBox(&dlg);
+    window_box->addItem(tr("Нарастающее (вся траектория)"), 0);
+    window_box->addItem(tr("Скользящее окно"), 1);
+
+    QSpinBox *percent_box = new QSpinBox(&dlg);
+    percent_box->setRange(5, 90);
+    percent_box->setValue(20);
+    percent_box->setSuffix(tr(" %"));
+    connect(window_box, &QComboBox::currentIndexChanged, this,
+            [percent_box](int index) { percent_box->setEnabled(index == 1); });
+    percent_box->setEnabled(false);
+
+    form->addRow(tr("Формат:"), format_box);
+    form->addRow(tr("Кадров в секунду:"), fps_box);
+    form->addRow(tr("Число кадров:"), frames_box);
+    form->addRow(tr("Ширина, px:"), width_box);
+    form->addRow(tr("Высота, px:"), height_box);
+    form->addRow(tr("Окно времени:"), window_box);
+    form->addRow(tr("Ширина окна:"), percent_box);
+
+    QDialogButtonBox *buttons =
+        new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Экспортировать"));
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    form->addRow(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString format = format_box->currentData().toString();
+    const int fps = fps_box->value();
+    const int frames = frames_box->value();
+    const int width = width_box->value();
+    const int height = height_box->value();
+    const bool sliding = window_box->currentData().toInt() == 1;
+    const double window_span = (t1 - t0) * percent_box->value() / 100.0;
+
+    QString gif_file;
+    QString png_dir;
+    if (format == QLatin1String("gif"))
+    {
+        gif_file = QFileDialog::getSaveFileName(
+            this, tr("Сохранить анимацию"), settings_.output_dir + "/animation.gif",
+            tr("GIF-анимация (*.gif)"));
+        if (gif_file.isEmpty()) return;
+    }
+    else
+    {
+        png_dir = QFileDialog::getExistingDirectory(
+            this, tr("Каталог для PNG-кадров"), settings_.output_dir);
+        if (png_dir.isEmpty()) return;
+    }
+
+    // Траектория: полные точки для фиксации масштаба и растущая часть по кадрам.
+    const bool is_trajectory = (plot == plot_trajectory_);
+    QVector<QPointF> anim_nav;
+    QVector<QPointF> anim_ref;
+    if (is_trajectory)
+    {
+        buildTrajectoryPoints(&anim_nav, &anim_ref);
+        plot_trajectory_->setNavPoints(anim_nav);
+        plot_trajectory_->setReferencePoints(anim_ref);
+        plot_trajectory_->setShowReference(!anim_ref.isEmpty());
+        plot_trajectory_->resetView();
+    }
+
+    QProgressDialog progress(tr("Построение кадров…"), tr("Отмена"), 0, frames, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    QString error;
+    QVector<QImage> img_frames = AnimationExporter::renderFrames(
+        plot, width, height, frames,
+        [&](int frame, int total) {
+            progress.setLabelText(tr("Кадр %1 из %2").arg(frame + 1).arg(total));
+            if (is_trajectory)
+            {
+                const int count =
+                    std::clamp(qRound(anim_nav.size() * double(frame + 1) / total), 0,
+                               static_cast<int>(anim_nav.size()));
+                plot_trajectory_->setNavPoints(anim_nav.mid(0, count));
+            }
+            else
+            {
+                double x0 = t0;
+                double x1 = t1;
+                if (sliding)
+                {
+                    const double step_step = frames > 1
+                                                 ? std::max(0.0, (t1 - t0) - window_span) /
+                                                       (frames - 1)
+                                                 : 0.0;
+                    x0 = t0 + step_step * frame;
+                    x1 = std::min(t1, x0 + window_span);
+                }
+                else
+                {
+                    x1 = t0 + (t1 - t0) * (frame + 1) / total;
+                }
+                plot->setXRange(x0, x1);
+            }
+        },
+        [&](int frame, int total) {
+            progress.setValue(frame);
+            return !progress.wasCanceled();
+        },
+        &error);
+
+    // Восстановить вид графика.
+    if (is_trajectory)
+    {
+        updateTrajectory();
+        plot_trajectory_->resetView();
+    }
+    else
+    {
+        rebuildPlotSeries(plot_tabs_->currentIndex());
+        plot->resetRanges();
+    }
+
+    if (!error.isEmpty())
+    {
+        QMessageBox::warning(this, tr("Экспорт"), error);
+        return;
+    }
+    if (img_frames.isEmpty())
+    {
+        QMessageBox::information(this, tr("Экспорт анимации"), tr("Нет кадров"));
+        return;
+    }
+    if (img_frames.size() < frames)
+    {
+        QMessageBox::information(this, tr("Экспорт анимации"), tr("Экспорт прерван"));
+        return;
+    }
+
+    bool ok = false;
+    if (format == QLatin1String("gif"))
+        ok = AnimationExporter::writeGif(img_frames, gif_file, fps, &error);
+    else
+        ok = AnimationExporter::writePngSequence(img_frames, png_dir, QStringLiteral("frame"),
+                                                 &error);
+    if (!ok)
+    {
+        QMessageBox::warning(this, tr("Экспорт"), error);
+        return;
+    }
+
+    if (format == QLatin1String("gif"))
+        log_->append(tr("Анимация сохранена: %1 (%2 кадров, %3 FPS)")
+                         .arg(gif_file)
+                         .arg(img_frames.size())
+                         .arg(fps));
+    else
+        log_->append(tr("Сохранены кадры: %1 (%2 шт.)").arg(png_dir).arg(img_frames.size()));
+}
+
 void MainWindow::onSaveLog()
 {
     const QString path = QFileDialog::getSaveFileName(
@@ -1587,6 +2103,38 @@ int MainWindow::openRun(qint64 runId)
     log_->append(tr("Открыт сохранённый прогон %1: %2 точек")
                      .arg(runId)
                      .arg(series_.rows.size()));
+
+    // Снимок параметров фильтра, с которым сделан прогон: предложить применить.
+    // В headless self-test модальный диалог повесил бы расчёт, поэтому диалог
+    // показываем только в интерактивном режиме.
+    const QString settings_ini = store_.runSettings(runId);
+    if (!autostart_ && !settings_ini.isEmpty())
+    {
+        QMessageBox box(this);
+        box.setWindowTitle(tr("Параметры прогона"));
+        box.setIcon(QMessageBox::Question);
+        box.setText(tr("Прогон сохранён с набором параметров фильтра.\n"
+                       "Применить их к таблице параметров и к фильтру?"));
+        box.setDetailedText(settings_ini);
+        QPushButton *apply = box.addButton(tr("Применить"), QMessageBox::AcceptRole);
+        box.addButton(QMessageBox::Cancel);
+        box.exec();
+
+        if (box.clickedButton() == apply)
+        {
+            QString error;
+            if (!params_->loadSettingsText(settings_ini, &error))
+            {
+                QMessageBox::warning(this, tr("Параметры"), error);
+            }
+            else
+            {
+                params_->applyToCore();
+                log_->append(tr("Применены параметры из прогона %1").arg(runId));
+            }
+        }
+    }
+
     return static_cast<int>(series_.rows.size());
 }
 
@@ -1719,8 +2267,140 @@ void MainWindow::closeEvent(QCloseEvent *event)
     settings_.dark_theme = theme_action_->isChecked();
     saveSettings();
     settings_.save();
-
     event->accept();
+}
+
+void MainWindow::onGenerateDataset()
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Сгенерировать тестовые данные"));
+    dlg.setMinimumWidth(420);
+
+    QFormLayout form(&dlg);
+
+    QLineEdit *name_edit = new QLineEdit("square_test");
+    form.addRow(tr("Имя набора"), name_edit);
+
+    QLineEdit *out_edit = new QLineEdit(settings_.data_dir);
+    QPushButton *browse = new QPushButton(tr("Обзор..."));
+    QHBoxLayout *out_h = new QHBoxLayout;
+    out_h->addWidget(out_edit);
+    out_h->addWidget(browse);
+    form.addRow(tr("Каталог вывода"), out_h);
+
+    QDoubleSpinBox *imu_hz = new QDoubleSpinBox;
+    imu_hz->setRange(1.0, 1000.0);
+    imu_hz->setValue(200.0);
+    form.addRow(tr("Частота ИМУ, Гц"), imu_hz);
+
+    QDoubleSpinBox *gps_hz = new QDoubleSpinBox;
+    gps_hz->setRange(0.1, 100.0);
+    gps_hz->setValue(10.0);
+    form.addRow(tr("Частота СНС, Гц"), gps_hz);
+
+    QDoubleSpinBox *angle_hz = new QDoubleSpinBox;
+    angle_hz->setRange(0.1, 100.0);
+    angle_hz->setValue(10.0);
+    form.addRow(tr("Частота углов, Гц"), angle_hz);
+
+    QDoubleSpinBox *dur1 = new QDoubleSpinBox;
+    dur1->setRange(1.0, 1e6);
+    dur1->setValue(120.0);
+    form.addRow(tr("Выставка (покой), с"), dur1);
+
+    QDialogButtonBox btns(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    form.addRow(&btns);
+
+    connect(browse, &QPushButton::clicked, this, [this, out_edit]() {
+        const QString dir = QFileDialog::getExistingDirectory(
+            this, tr("Выбрать каталог"), out_edit->text());
+        if (!dir.isEmpty()) out_edit->setText(dir);
+    });
+    connect(&btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(&btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString out_dir = out_edit->text();
+    if (out_dir.trimmed().isEmpty())
+    {
+        QMessageBox::warning(this, tr("Генерация"), tr("Не задан каталог вывода."));
+        return;
+    }
+
+    // Предупреждение перед перезаписью уже существующего набора.
+    if (QFileInfo::exists(QDir(out_dir).filePath(QStringLiteral("imu.dat"))))
+    {
+        const auto answer = QMessageBox::question(
+            this, tr("Генерация"),
+            tr("В каталоге %1 уже есть imu.dat. Перезаписать данные?").arg(out_dir),
+            QMessageBox::Yes | QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+    }
+
+    dataset::DatasetConfig cfg;
+    cfg.name = name_edit->text().toStdString();
+    cfg.out_dir = out_dir.toStdString();
+    cfg.imu_hz = imu_hz->value();
+    cfg.gps_hz = gps_hz->value();
+    cfg.angle_hz = angle_hz->value();
+    // Длительность выставки пишется в StartupNav.ini и задаёт участок покоя
+    // (первый сегмент профиля) — он обязателен для работы выравнивателя.
+    cfg.align_time_s = dur1->value();
+    cfg.profile.clear();
+    cfg.profile.push_back({cfg.align_time_s, 0.0, 0.0, 0.0});
+    cfg.profile.push_back({20.0, 10.0, 0.0, 0.0});
+    cfg.profile.push_back({40.0, 10.0, 0.0, 1.5});
+    cfg.profile.push_back({20.0, 10.0, 0.0, 0.0});
+    cfg.profile.push_back({20.0, 0.0, 0.0, 0.0});
+
+    log_->append(tr("Генерация тестовых данных в %1 ...").arg(out_dir));
+
+    struct GenResult
+    {
+        bool ok = false;
+        dataset::DatasetReport report;
+        std::string error;
+    };
+
+    // Генератор не даёт обратного вызова прогресса, поэтому показываем
+    // неопределённый прогресс, пока расчёт идёт в фоновом потоке.
+    QProgressDialog pd(tr("Генерация тестовых данных..."), QString(), 0, 0, this);
+    pd.setWindowTitle(tr("Генерация"));
+    pd.setWindowModality(Qt::WindowModal);
+    pd.setMinimumDuration(0);
+
+    QFutureWatcher<GenResult> watcher;
+    connect(&watcher, &QFutureWatcher<GenResult>::finished, &pd, &QProgressDialog::accept);
+    watcher.setFuture(QtConcurrent::run([cfg]() {
+        GenResult r;
+        r.ok = dataset::generateDataset(cfg, r.report, &r.error);
+        return r;
+    }));
+    pd.exec();
+
+    const GenResult result = watcher.result();
+    if (result.ok)
+    {
+        log_->append(tr("Готово: IMU=%1, GPS=%2, ANGLE=%3, TRUTH=%4; каталог %5")
+                         .arg(result.report.imu_rows)
+                         .arg(result.report.gps_rows)
+                         .arg(result.report.angle_rows)
+                         .arg(result.report.truth_rows)
+                         .arg(out_dir));
+        QMessageBox::information(this, tr("Готово"),
+                                 tr("Сгенерировано: IMU=%1, GPS=%2, ANGLE=%3\nКаталог: %4")
+                                     .arg(result.report.imu_rows)
+                                     .arg(result.report.gps_rows)
+                                     .arg(result.report.angle_rows)
+                                     .arg(out_dir));
+        data_->setDataDir(out_dir);
+    }
+    else
+    {
+        log_->append(tr("Ошибка генерации: %1").arg(QString::fromStdString(result.error)), 2);
+        QMessageBox::critical(this, tr("Ошибка"), QString::fromStdString(result.error));
+    }
 }
 
 } // namespace gui
