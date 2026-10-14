@@ -1232,7 +1232,7 @@ QVector<PlotSeries> MainWindow::consistencySeries() const
 //
 // Ряды строятся теми же функциями, что и вкладки, поэтому отчёт содержит все
 // графики независимо от открытой вкладки: каждая величина отдельно, с истиной
-// для сравнения, плюс диагностика фильтра.
+// для сравнения, плюс согласованность фильтра (NIS / NEES).
 QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
 {
     QVector<PdfReport::PlotBlock> blocks;
@@ -1279,11 +1279,6 @@ QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
         blocks.push_back(b);
     };
 
-    add_diagnostic(tr("Вектор ошибок x (кадры коррекции СНС)"), tr("ошибка"),
-                   errorSeries(), correctionTimes());
-    add_diagnostic(tr("Инновации измерений СНС"), tr("измерение − прогноз"),
-                   innovationSeries(), correctionTimes());
-    add_diagnostic(tr("Диагонали ковариации P"), tr("Pᵢᵢ"), covarianceSeries(), {});
     add_diagnostic(tr("Согласованность фильтра (NIS / NEES)"), tr("статистика"),
                    consistencySeries(), correctionTimes());
 
