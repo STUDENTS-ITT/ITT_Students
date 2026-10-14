@@ -24,6 +24,7 @@ ctest --test-dir build --output-on-failure   # QT_QPA_PLATFORM=offscreen при 
 
 ## Документация
 - `FIRST_RUN.md` — **с чего начать**: руководство по первому запуску, сквозной проход по всему функционалу GUI (также `docs/user_manual/`, `dist/`).
+- `docs/user_manual/FIRST_RUN_GENERATE.md` — пошаговый первый прогон с **генерацией** новых данных (без внешних файлов; также в корне и `dist/`).
 - `USER_GUIDE.md` — руководство пользователя GUI (также `docs/user_manual/`, `dist/`).
 - `docs/user_manual/NAVIGATION.md` — подробная навигация по интерфейсу (кнопки, вкладки, меню, сценарии).
 - `DEVELOPER_GUIDE.md` — архитектура, ключевые классы, сборка, отладка.
