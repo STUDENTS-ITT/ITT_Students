@@ -37,6 +37,8 @@
 
 #include "views/plots/time_series_plot.h"
 
+#include "settings/preset_meta.h"
+
 namespace gui
 {
 namespace
@@ -438,6 +440,23 @@ bool TuningReport::build(const QString &config_path, const QString &pdf_path,
     drawRow(p, c, QObject::tr("Конфиг"), config_path);
     drawRow(p, c, QObject::tr("Рабочий каталог"), work_root);
     drawRow(p, c, QObject::tr("Пресет"), preset.isEmpty() ? QStringLiteral("—") : preset);
+
+    // Паспорт набора из [meta] пресета: должен совпадать с data_dir конфига
+    // (сверка имён «набор ↔ пресет», см. settings/preset_meta.h).
+    if (!preset.isEmpty())
+    {
+        const PresetMeta meta = readPresetMeta(preset);
+        const QString tuned = meta.dataset.trimmed();
+        const QString current = QDir(data_dir).dirName();
+        QString passport;
+        if (!meta.present || tuned.isEmpty())
+            passport = QObject::tr("нет (пресет без секции [meta])");
+        else if (!current.isEmpty() && tuned == current)
+            passport = QObject::tr("совпадает");
+        else
+            passport = QObject::tr("пресет подобран на наборе «%1»").arg(tuned);
+        drawRow(p, c, QObject::tr("Паспорт набора"), passport);
+    }
     drawRow(p, c, QObject::tr("Ошибка считается по"),
             error_ref.isEmpty() ? QStringLiteral("—") : error_ref);
     drawRow(p, c, QObject::tr("Оценок (eval.json)"), QString::number(evals.size()));

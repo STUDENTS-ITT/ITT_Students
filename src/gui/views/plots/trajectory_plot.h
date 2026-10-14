@@ -28,6 +28,12 @@ public:
     void setReferencePoints(const QVector<QPointF> &points_east_north);
     void clearReference();
 
+    // Истинная траектория (truth.txt) в тех же местных координатах:
+    // выводится пунктиром для сравнения с оценкой БИНС.
+    void setTruthPoints(const QVector<QPointF> &points_east_north);
+    void clearTruth();
+    bool hasTruth() const { return !truth_.isEmpty(); }
+
     void setShowReference(bool on);
     bool showReference() const { return show_reference_; }
 
@@ -45,9 +51,12 @@ protected:
 
 private:
     void recomputeView();
+    // Легенда источников траектории (оценка / СНС / истина).
+    void drawTrajectoryLegend(QPainter &painter, const QRectF &rect) const;
 
-    QVector<QPointF> nav_;  // траектория БИНС, м от старта
-    QVector<QPointF> ref_;  // точки СНС, м от старта
+    QVector<QPointF> nav_;    // траектория БИНС, м от старта
+    QVector<QPointF> ref_;    // точки СНС, м от старта
+    QVector<QPointF> truth_;  // истинная траектория, м от старта
     bool show_reference_ = true;
     bool auto_center_ = false;
     bool auto_view_ = true;  // масштаб подбирается по данным

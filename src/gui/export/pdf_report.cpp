@@ -285,6 +285,8 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
                                                          : QVector<PlotSeries>();
     const PlotView::RangeState saved_ranges =
         swap_series ? plot->rangeState() : PlotView::RangeState();
+    const QString saved_x_label = swap_series ? plot->xLabel() : QString();
+    const QString saved_y_label = swap_series ? plot->yLabel() : QString();
     TimeSeriesPlot *swap_plot = swap_series ? qobject_cast<TimeSeriesPlot *>(plot) : nullptr;
     const QVector<double> saved_markers =
         (swap_plot != nullptr) ? swap_plot->syncMarkers() : QVector<double>();
@@ -298,6 +300,9 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
     if (swap_series)
     {
         plot->setReportSeries(block.series);
+        // Подписи осей принадлежат блоку: у величин это «Время, с» и единица.
+        if (!block.x_label.isEmpty() || !block.y_label.isEmpty())
+            plot->setAxisLabels(block.x_label, block.y_label);
         // Диапазоны — по рядам блока: иначе Y-шкала осталась бы от холста,
         // а она у каждого блока своя (общий только диапазон времени).
         plot->fitRangesToSeries();
@@ -315,8 +320,9 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
     if (swap_series)
     {
         plot->setReportSeries(saved_series);
-        // Возврат масштаба холста: сборка отчёта не должна менять состояние
-        // графика на экране.
+        // Возврат масштаба и подписей холста: сборка отчёта не должна менять
+        // состояние графика на экране.
+        plot->setAxisLabels(saved_x_label, saved_y_label);
         plot->setRangeState(saved_ranges);
     }
     // Метки синхронизации тоже относятся к состоянию виджета: после экспорта
@@ -430,6 +436,10 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     if (!options.preset.isEmpty())
     {
         drawTableRow(writer, p, cursor, QObject::tr("Пресет"), options.preset);
+    }
+    if (!options.preset_note.isEmpty())
+    {
+        drawTableRow(writer, p, cursor, QObject::tr("Паспорт набора"), options.preset_note);
     }
     drawTableRow(writer, p, cursor, QObject::tr("Отсчётов"), QString::number(series.rows.size()));
     drawTableRow(writer, p, cursor, QObject::tr("Кадров коррекции"),

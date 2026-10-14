@@ -70,6 +70,7 @@ private slots:
     void emptyRunIsRejected();
     void buildsPdfFile();
     void buildsPdfWithTruth();
+    void blockAxisLabelsAreRestored();
     void plotsDoNotChangeCanvasState();
 };
 
@@ -207,6 +208,37 @@ void TestPdfReport::buildsPdfWithTruth()
              qPrintable(error));
     QVERIFY2(QFileInfo(plain_path).size() < with_truth,
              "раздел «Ошибка относительно истины» не добавился");
+}
+
+void TestPdfReport::blockAxisLabelsAreRestored()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    TimeSeriesPlot canvas;
+    canvas.setAxisLabels(QStringLiteral("Время, с"), QStringLiteral("исходная ось"));
+    QVector<double> t, v;
+    for (int i = 0; i <= 20; i++)
+    {
+        t.push_back(i);
+        v.push_back(i * 0.5);
+    }
+    canvas.setSeries({makeSeries(QStringLiteral("ряд"), t, v)});
+
+    // У блока свои подписи осей (величина), они не должны «протечь» на холст.
+    PdfReport::PlotBlock block;
+    block.caption = QStringLiteral("Долгота");
+    block.series = {makeSeries(QStringLiteral("Долгота"), t, v)};
+    block.x_label = QStringLiteral("Время, с");
+    block.y_label = QStringLiteral("°");
+
+    QString error;
+    QVERIFY2(PdfReport::build(&canvas, makeRun(), {block}, PdfReport::Options(),
+                              dir.filePath("labels.pdf"), &error),
+             qPrintable(error));
+
+    QCOMPARE(canvas.xLabel(), QStringLiteral("Время, с"));
+    QCOMPARE(canvas.yLabel(), QStringLiteral("исходная ось"));
 }
 
 void TestPdfReport::plotsDoNotChangeCanvasState()

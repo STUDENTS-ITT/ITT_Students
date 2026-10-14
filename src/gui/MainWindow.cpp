@@ -51,6 +51,7 @@
 #include "models/nav_table_model.h"
 #include "models/params_table_model.h"
 #include "settings/dataset_truth.h"
+#include "settings/preset_meta.h"
 #include "views/control_panel.h"
 #include "views/data_panel.h"
 #include "views/log_panel.h"
@@ -68,6 +69,10 @@ namespace
 // Ограничение числа точек на ряд в графике: при 10 минутах прогона это 120 000
 // точек на ряд — рисовать незачем, достаточно ~2000.
 constexpr int kMaxPlotPoints = 2000;
+
+// Ограничение для PDF-отчёта: график блока занимает ~700×300 px, поэтому 2000
+// точек на ряд избыточны и во много раз раздувают векторный файл.
+constexpr int kMaxReportPoints = 600;
 
 // Интервал отрисовки во время прогона, мс (25 Гц).
 constexpr int kRefreshMs = 40;
@@ -124,6 +129,33 @@ PlotSeries makeSeries(const QString &name, const QVector<double> &times,
         s.points.push_back(QPointF(times[n - 1], values[n - 1]));
     }
     return s;
+}
+
+// Дополнительное прореживание ряда для PDF (см. kMaxReportPoints): равномерная
+// выборка с сохранением обеих крайних точек.
+PlotSeries decimateForReport(const PlotSeries &in)
+{
+    const int total = in.points.size();
+    if (total <= kMaxReportPoints) return in;
+
+    PlotSeries out = in;
+    out.points.clear();
+    out.points.reserve(kMaxReportPoints);
+    for (int i = 0; i < kMaxReportPoints; i++)
+    {
+        const int idx = static_cast<int>(
+            static_cast<qint64>(i) * (total - 1) / (kMaxReportPoints - 1));
+        out.points.push_back(in.points[idx]);
+    }
+    return out;
+}
+
+QVector<PlotSeries> decimateForReport(const QVector<PlotSeries> &in)
+{
+    QVector<PlotSeries> out;
+    out.reserve(in.size());
+    for (const PlotSeries &s : in) out.push_back(decimateForReport(s));
+    return out;
 }
 
 // Времена отсчётов накопленного ряда (для графиков).
@@ -191,6 +223,53 @@ QString innovationLabel(int i)
         "Δкурс", "Δтангаж", "Δкрен"};
     if (i >= 0 && i < ins::KF_MEAS) return QString::fromLatin1(names[i]);
     return QString("z%1").arg(i);
+}
+
+// Цвет истинной величины на графиках (оценка идёт из общей палитры).
+const QColor kTruthColor(0, 150, 60);
+
+// Название величины по колонке результата/истины (1..9). Нумерация колонок в
+// RunSeries::ResultField и в TruthSample.v одна и та же, поэтому индекс общий.
+QString quantityTitle(int column)
+{
+    switch (column)
+    {
+    case RunSeries::Lon: return QObject::tr("Долгота");
+    case RunSeries::Lat: return QObject::tr("Широта");
+    case RunSeries::Alt: return QObject::tr("Высота");
+    case RunSeries::Heading: return QObject::tr("Курс");
+    case RunSeries::Pitch: return QObject::tr("Тангаж");
+    case RunSeries::Roll: return QObject::tr("Крен");
+    case RunSeries::Vn: return QObject::tr("Vn");
+    case RunSeries::Ve: return QObject::tr("Ve");
+    case RunSeries::Vh: return QObject::tr("Vh");
+    default: return QObject::tr("Величина");
+    }
+}
+
+// Единица измерения величины — подпись оси Y.
+QString quantityUnit(int column)
+{
+    switch (column)
+    {
+    case RunSeries::Alt: return QObject::tr("м");
+    case RunSeries::Vn:
+    case RunSeries::Ve:
+    case RunSeries::Vh: return QObject::tr("м/с");
+    default: return QObject::tr("°");
+    }
+}
+
+// Страница вкладки с несколькими графиками: у каждой величины свой масштаб и
+// легенда, поэтому они раскладываются вертикально, а не рисуются на одном поле.
+QWidget *stackPlots(const QVector<PlotView *> &plots)
+{
+    auto *page = new QWidget;
+    auto *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(2);
+    for (PlotView *p : plots) layout->addWidget(p, 1);
+    return page;
 }
 } // namespace
 
@@ -317,9 +396,11 @@ void MainWindow::buildUi()
 
     plot_tabs_ = new QTabWidget;
     plot_tabs_->addTab(plot_trajectory_, tr("Траектория"));
-    plot_tabs_->addTab(plot_position_, tr("Координаты"));
-    plot_tabs_->addTab(plot_attitude_, tr("Углы"));
-    plot_tabs_->addTab(plot_velocity_, tr("Скорости"));
+    // Координаты, углы и скорости — каждая величина отдельным графиком
+    // (с истиной для сравнения), поэтому на вкладке стопка из трёх графиков.
+    plot_tabs_->addTab(stackPlots({plot_lat_, plot_lon_, plot_alt_}), tr("Координаты"));
+    plot_tabs_->addTab(stackPlots({plot_heading_, plot_pitch_, plot_roll_}), tr("Углы"));
+    plot_tabs_->addTab(stackPlots({plot_vn_, plot_ve_, plot_vh_}), tr("Скорости"));
     plot_tabs_->addTab(plot_errors_, tr("Ошибки x"));
     plot_tabs_->addTab(plot_innovation_, tr("Инновации СНС"));
     plot_tabs_->addTab(plot_covariance_, tr("Ковариация P"));
@@ -470,20 +551,25 @@ void MainWindow::buildActions()
 void MainWindow::buildPlots()
 {
     plot_trajectory_ = new TrajectoryPlot;
-    plot_position_ = new TimeSeriesPlot;
-    plot_position_->setTitle(tr("Координаты и высота"));
-    plot_position_->setAxisLabels(tr("Время, с"), tr("°, м"));
-    plot_position_->setMarginLeft(70);
 
-    plot_attitude_ = new TimeSeriesPlot;
-    plot_attitude_->setTitle(tr("Углы ориентации"));
-    plot_attitude_->setAxisLabels(tr("Время, с"), tr("°"));
-    plot_attitude_->setMarginLeft(70);
+    // Временные графики величин: у каждой свой виджет, чтобы на графике была
+    // ровно одна величина (оценка) и её истина — без наложения осей.
+    const auto add_time_plot = [this](TimeSeriesPlot *&plot, int column) {
+        plot = new TimeSeriesPlot;
+        plot->setTitle(quantityTitle(column));
+        plot->setAxisLabels(tr("Время, с"), quantityUnit(column));
+        plot->setMarginLeft(70);
+    };
 
-    plot_velocity_ = new TimeSeriesPlot;
-    plot_velocity_->setTitle(tr("Скорости"));
-    plot_velocity_->setAxisLabels(tr("Время, с"), tr("м/с"));
-    plot_velocity_->setMarginLeft(70);
+    add_time_plot(plot_lat_, RunSeries::Lat);
+    add_time_plot(plot_lon_, RunSeries::Lon);
+    add_time_plot(plot_alt_, RunSeries::Alt);
+    add_time_plot(plot_heading_, RunSeries::Heading);
+    add_time_plot(plot_pitch_, RunSeries::Pitch);
+    add_time_plot(plot_roll_, RunSeries::Roll);
+    add_time_plot(plot_vn_, RunSeries::Vn);
+    add_time_plot(plot_ve_, RunSeries::Ve);
+    add_time_plot(plot_vh_, RunSeries::Vh);
 
     plot_errors_ = new TimeSeriesPlot;
     plot_errors_->setTitle(tr("Вектор ошибок x (кадры коррекции СНС)"));
@@ -585,6 +671,7 @@ void MainWindow::onStart()
     nav_model_->clear();
     plot_trajectory_->clearTrajectory();
     plot_trajectory_->clearReference();
+    plot_trajectory_->clearTruth();
     plot_errors_->clearSyncMarkers();
     state_->reset();
 
@@ -924,239 +1011,282 @@ void MainWindow::refreshNavModel(bool force)
 
 void MainWindow::rebuildPlotSeries(int tab)
 {
-    const int n = static_cast<int>(series_.rows.size());
-
-    // Времена для рядов по всем тактам.
-    QVector<double> times;
-    times.reserve(n);
-    for (const RunSeries::Row &r : series_.rows) times.push_back(r.time);
-
-    QVector<PlotSeries> out;
+    ensureTruthLoaded();
+    plots_dirty_ = false;
 
     switch (tab)
     {
     case 0:
         // Траектория рисуется через updateTrajectory().
-        plots_dirty_ = false;
         return;
 
-    case 1:  // Координаты и высота
-    {
-        if (n == 0) return;
-        QVector<double> lat(n), lon(n), alt(n);
-        for (int i = 0; i < n; i++)
-        {
-            const RunSeries::Row &r = series_.rows[i];
-            lat[i] = r.result[RunSeries::Lat];
-            lon[i] = r.result[RunSeries::Lon];
-            alt[i] = r.result[RunSeries::Alt];
-        }
-        // Широта/долгота в градусах (1e-5), высота в метрах — по одной оси
-        // все три ряда читаются плохо, поэтому координаты переводим в
-        // метры от точки старта, а высоту оставляем как есть.
-        if (start_valid_)
-        {
-            const double lat0 = start_lat_ * DEG_TO_RAD;
-            const double lon0 = start_lon_ * DEG_TO_RAD;
-            QVector<double> north(n), east(n);
-            for (int i = 0; i < n; i++)
-            {
-                north[i] = (lat[i] * DEG_TO_RAD - lat0) * R_EARTH;
-                east[i] = (lon[i] * DEG_TO_RAD - lon0) * R_EARTH * std::cos(lat0);
-            }
-            out.push_back(makeSeries(tr("Север, м"), times, north, 0));
-            out.push_back(makeSeries(tr("Восток, м"), times, east, 1));
-        }
-        else
-        {
-            out.push_back(makeSeries(tr("Широта, °"), times, lat, 0));
-            out.push_back(makeSeries(tr("Долгота, °"), times, lon, 1));
-        }
-        out.push_back(makeSeries(tr("Высота, м"), times, alt, 2));
-        break;
-    }
+    case 1:  // Координаты: широта, долгота, высота — каждой свой график
+        if (series_.rows.empty()) return;
+        plot_lat_->setSeries(quantitySeries(RunSeries::Lat));
+        plot_lon_->setSeries(quantitySeries(RunSeries::Lon));
+        plot_alt_->setSeries(quantitySeries(RunSeries::Alt));
+        return;
 
-    case 2:  // Углы
-    {
-        if (n == 0) return;
-        QVector<double> hdg(n), pitch(n), roll(n);
-        for (int i = 0; i < n; i++)
-        {
-            const RunSeries::Row &r = series_.rows[i];
-            hdg[i] = r.result[RunSeries::Heading];
-            pitch[i] = r.result[RunSeries::Pitch];
-            roll[i] = r.result[RunSeries::Roll];
-        }
-        out.push_back(makeSeries(tr("Курс, °"), times, hdg, 0));
-        out.push_back(makeSeries(tr("Тангаж, °"), times, pitch, 1));
-        out.push_back(makeSeries(tr("Крен, °"), times, roll, 2));
-        break;
-    }
+    case 2:  // Углы: курс, тангаж, крен
+        if (series_.rows.empty()) return;
+        plot_heading_->setSeries(quantitySeries(RunSeries::Heading));
+        plot_pitch_->setSeries(quantitySeries(RunSeries::Pitch));
+        plot_roll_->setSeries(quantitySeries(RunSeries::Roll));
+        return;
 
-    case 3:  // Скорости
-    {
-        if (n == 0) return;
-        QVector<double> vn(n), vh(n), ve(n);
-        for (int i = 0; i < n; i++)
-        {
-            const RunSeries::Row &r = series_.rows[i];
-            vn[i] = r.result[RunSeries::Vn];
-            vh[i] = r.result[RunSeries::Vh];
-            ve[i] = r.result[RunSeries::Ve];
-        }
-        out.push_back(makeSeries(tr("Vn, м/с"), times, vn, 0));
-        out.push_back(makeSeries(tr("Vh, м/с"), times, vh, 1));
-        out.push_back(makeSeries(tr("Ve, м/с"), times, ve, 2));
-        break;
-    }
+    case 3:  // Скорости: vn, ve, vh
+        if (series_.rows.empty()) return;
+        plot_vn_->setSeries(quantitySeries(RunSeries::Vn));
+        plot_ve_->setSeries(quantitySeries(RunSeries::Ve));
+        plot_vh_->setSeries(quantitySeries(RunSeries::Vh));
+        return;
 
     case 4:  // Вектор ошибок x (только кадры коррекции СНС)
     {
-        const int m = static_cast<int>(series_.corrections.size());
-        if (m == 0) return;
-
-        QVector<double> ct(m);
-        for (int k = 0; k < m; k++) ct[k] = series_.corrections[k].time;
-
-        for (int i = 0; i < ins::KF_STATE; i++)
-        {
-            QVector<double> v(m);
-            for (int k = 0; k < m; k++) v[k] = series_.corrections[k].x[i];
-            out.push_back(makeSeries(errorLabel(i), ct, v, i, true));
-        }
-        plot_errors_->setSyncMarkers(ct);
+        const QVector<PlotSeries> out = errorSeries();
+        if (out.isEmpty()) return;
+        plot_errors_->setSyncMarkers(correctionTimes());
         plot_errors_->setVisibilityThreshold(1e-18);
-        appendCompareSeries(out, tab);
         plot_errors_->setSeries(out);
-        plots_dirty_ = false;
         return;
     }
 
     case 5:  // Инновации измерений СНС
     {
-        const int m = static_cast<int>(series_.corrections.size());
-        if (m == 0) return;
-
-        QVector<double> ct(m);
-        for (int k = 0; k < m; k++) ct[k] = series_.corrections[k].time;
-
-        int color = 0;
-        for (int i = 0; i < ins::KF_MEAS; i++)
-        {
-            QVector<double> v(m);
-            bool nonzero = false;
-            for (int k = 0; k < m; k++)
-            {
-                v[k] = series_.corrections[k].innovation[i];
-                if (std::abs(v[k]) > 0.0) nonzero = true;
-            }
-            // Нулевые компоненты (например, курс без angle.dat) не рисуем.
-            if (!nonzero) continue;
-            out.push_back(makeSeries(innovationLabel(i), ct, v, color++, true));
-        }
-        plot_innovation_->setSyncMarkers(ct);
+        const QVector<PlotSeries> out = innovationSeries();
+        if (out.isEmpty()) return;
+        plot_innovation_->setSyncMarkers(correctionTimes());
         plot_innovation_->setVisibilityThreshold(1e-18);
-        appendCompareSeries(out, tab);
         plot_innovation_->setSeries(out);
-        plots_dirty_ = false;
         return;
     }
 
     case 6:  // Диагонали ковариации P
     {
-        if (n == 0) return;
-        for (int i = 0; i < ins::KF_STATE; i++)
-        {
-            QVector<double> v(n);
-            for (int k = 0; k < n; k++) v[k] = series_.rows[k].p[i];
-            out.push_back(makeSeries(covLabel(i), times, v, i));
-        }
-        break;
+        const QVector<PlotSeries> out = covarianceSeries();
+        if (out.isEmpty()) return;
+        plot_covariance_->setSeries(out);
+        return;
     }
 
     case 7:  // NIS / NEES на кадрах коррекции СНС
     {
-        const int m = static_cast<int>(series_.consistency.size());
-        if (m == 0) return;
-
-        QVector<double> ct(m);
-        QVector<double> nis(m);
-        QVector<double> nees(m);
-        int dof = 0;
-        for (int k = 0; k < m; k++)
-        {
-            ct[k] = series_.consistency[k].time;
-            nis[k] = series_.consistency[k].nis;
-            nees[k] = series_.consistency[k].nees;
-            dof = series_.consistency[k].dof;
-        }
-        if (dof <= 0) return;
-
-        // Опорная линия — ожидаемое значение хи-квадрат: в согласованном
-        // фильфе NIS и NEES тяготеют к числу степеней свободы.
-        QVector<double> expect(m, static_cast<double>(dof));
-        out.push_back(makeSeries(tr("ожидание (%1)").arg(dof), ct, expect, 6, true));
-        out.push_back(makeSeries(tr("NIS"), ct, nis, 0, true));
-        out.push_back(makeSeries(tr("NEES"), ct, nees, 1, true));
-
-        plot_consistency_->setSyncMarkers(ct);
+        const QVector<PlotSeries> out = consistencySeries();
+        if (out.isEmpty()) return;
+        plot_consistency_->setSyncMarkers(correctionTimes());
         plot_consistency_->setVisibilityThreshold(1e-12);
-        appendCompareSeries(out, tab);
         plot_consistency_->setSeries(out);
-        plots_dirty_ = false;
         return;
     }
 
     default:
         return;
     }
+}
 
-    PlotView *plot = nullptr;
-    switch (tab)
+// ------------------------------------------------- Ряды временных графиков
+//
+// Ряды строятся из накопленной телеметрии и общих для экрана и PDF функций:
+// один и тот же ряд уходит и в виджет вкладки, и в блок отчёта. Поэтому отчёт
+// не зависит от того, какая вкладка открыта (в self-test активна «Траектория»).
+
+void MainWindow::ensureTruthLoaded()
+{
+    if (truth_dir_ == settings_.data_dir) return;
+    truth_dir_ = settings_.data_dir;
+    truth_.clear();
+    loadDatasetTruth(settings_.data_dir, &truth_);
+}
+
+QVector<double> MainWindow::correctionTimes() const
+{
+    QVector<double> ct(static_cast<int>(series_.corrections.size()));
+    for (int i = 0; i < ct.size(); i++) ct[i] = series_.corrections[i].time;
+    return ct;
+}
+
+// Ряд одной величины: оценка БИНС и истина (truth.txt) в одних единицах.
+// Колонки результата и строки истины пронумерованы одинаково (Lat..Ve).
+QVector<PlotSeries> MainWindow::quantitySeries(int column) const
+{
+    QVector<PlotSeries> out;
+    if (series_.rows.empty()) return out;
+
+    const QVector<double> times = rowTimes(series_.rows);
+    QVector<double> est(times.size());
+    for (int i = 0; i < times.size(); i++) est[i] = series_.rows[i].result[column];
+    out.push_back(makeSeries(quantityTitle(column), times, est, 0));
+
+    if (!truth_.isEmpty())
     {
-    case 1: plot = plot_position_; break;
-    case 2: plot = plot_attitude_; break;
-    case 3: plot = plot_velocity_; break;
-    case 6: plot = plot_covariance_; break;
-    case 7: plot = plot_consistency_; break;
-    default: break;
+        QVector<double> tt;
+        QVector<double> tv;
+        tt.reserve(truth_.size());
+        tv.reserve(truth_.size());
+        for (const TruthSample &s : truth_)
+        {
+            tt.push_back(s.v[0]);
+            tv.push_back(s.v[column]);
+        }
+        PlotSeries truth = makeSeries(tr("Истина"), tt, tv, 3);
+        truth.color = kTruthColor;
+        truth.dashed = true;
+        out.push_back(truth);
     }
-    appendCompareSeries(out, tab);
-    if (plot != nullptr) plot->setSeries(out);
 
-    plots_dirty_ = false;
+    appendCompareField(out, column);
+    return out;
+}
+
+// Вектор ошибок x на кадрах коррекции СНС.
+QVector<PlotSeries> MainWindow::errorSeries() const
+{
+    QVector<PlotSeries> out;
+    const int m = static_cast<int>(series_.corrections.size());
+    if (m == 0) return out;
+
+    const QVector<double> ct = correctionTimes();
+    for (int i = 0; i < ins::KF_STATE; i++)
+    {
+        QVector<double> v(m);
+        for (int k = 0; k < m; k++) v[k] = series_.corrections[k].x[i];
+        out.push_back(makeSeries(errorLabel(i), ct, v, i, true));
+    }
+    appendCompareSeries(out, 4);
+    return out;
+}
+
+// Инновации измерений СНС (нулевые компоненты не рисуем).
+QVector<PlotSeries> MainWindow::innovationSeries() const
+{
+    QVector<PlotSeries> out;
+    const int m = static_cast<int>(series_.corrections.size());
+    if (m == 0) return out;
+
+    const QVector<double> ct = correctionTimes();
+    int color = 0;
+    for (int i = 0; i < ins::KF_MEAS; i++)
+    {
+        QVector<double> v(m);
+        bool nonzero = false;
+        for (int k = 0; k < m; k++)
+        {
+            v[k] = series_.corrections[k].innovation[i];
+            if (std::abs(v[k]) > 0.0) nonzero = true;
+        }
+        // Нулевые компоненты (например, курс без angle.dat) не рисуем.
+        if (!nonzero) continue;
+        out.push_back(makeSeries(innovationLabel(i), ct, v, color++, true));
+    }
+    appendCompareSeries(out, 5);
+    return out;
+}
+
+// Диагонали ковариации P по всем тактам.
+QVector<PlotSeries> MainWindow::covarianceSeries() const
+{
+    QVector<PlotSeries> out;
+    if (series_.rows.empty()) return out;
+
+    const QVector<double> times = rowTimes(series_.rows);
+    for (int i = 0; i < ins::KF_STATE; i++)
+    {
+        QVector<double> v(times.size());
+        for (int k = 0; k < times.size(); k++) v[k] = series_.rows[k].p[i];
+        out.push_back(makeSeries(covLabel(i), times, v, i));
+    }
+    return out;
+}
+
+// NIS/NEES на кадрах коррекции СНС с опорной линией ожидания.
+QVector<PlotSeries> MainWindow::consistencySeries() const
+{
+    QVector<PlotSeries> out;
+    const int m = static_cast<int>(series_.consistency.size());
+    if (m == 0) return out;
+
+    QVector<double> ct(m);
+    QVector<double> nis(m);
+    QVector<double> nees(m);
+    int dof = 0;
+    for (int k = 0; k < m; k++)
+    {
+        ct[k] = series_.consistency[k].time;
+        nis[k] = series_.consistency[k].nis;
+        nees[k] = series_.consistency[k].nees;
+        dof = series_.consistency[k].dof;
+    }
+    if (dof <= 0) return out;
+
+    // Опорная линия — ожидаемое значение хи-квадрат: в согласованном фильтре
+    // NIS и NEES тяготеют к числу степеней свободы.
+    const QVector<double> expect(m, static_cast<double>(dof));
+    out.push_back(makeSeries(tr("ожидание (%1)").arg(dof), ct, expect, 6, true));
+    out.push_back(makeSeries(tr("NIS"), ct, nis, 0, true));
+    out.push_back(makeSeries(tr("NEES"), ct, nees, 1, true));
+    appendCompareSeries(out, 7);
+    return out;
 }
 
 // Блоки графиков для сводного PDF-отчёта (план 2.9).
 //
-// Ряды берутся прямо из виджетов вкладок, поэтому в отчёт попадает ровно то,
-// что нарисовано на экране: с учётом второго прогона, разности и меток СНС.
-// Траектория уходит отдельным блоком со своим виджетом.
+// Ряды строятся теми же функциями, что и вкладки, поэтому отчёт содержит все
+// графики независимо от открытой вкладки: каждая величина отдельно, с истиной
+// для сравнения, плюс диагностика фильтра.
 QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
 {
     QVector<PdfReport::PlotBlock> blocks;
 
+    // Траектория — отдельным виджетом: у него свои оси (восток/север, м) и
+    // разметка (оценка БИНС, точки СНС, истина).
     PdfReport::PlotBlock traj;
-    traj.caption = tr("Траектория");
+    traj.caption = tr("Траектория (восток/север, м)");
     traj.widget = plot_trajectory_;
     blocks.push_back(traj);
 
-    const TimeSeriesPlot *tabs[] = {plot_position_, plot_attitude_, plot_velocity_,
-                                     plot_errors_, plot_innovation_, plot_covariance_,
-                                     plot_consistency_};
-    const QString captions[] = {tr("Координаты и высота"), tr("Углы"), tr("Скорости"),
-                                tr("Ошибки x"), tr("Инновации СНС"), tr("Диагонали P"),
-                                tr("Согласованность (NIS/NEES)")};
+    // Временной ряд одной величины: оценка и истина на одном поле.
+    const auto add_quantity = [this, &blocks](int column) {
+        const QVector<PlotSeries> s = quantitySeries(column);
+        if (s.isEmpty()) return;
+        PdfReport::PlotBlock b;
+        b.caption = quantityTitle(column);
+        b.series = decimateForReport(s);
+        b.x_label = tr("Время, с");
+        b.y_label = quantityUnit(column);
+        blocks.push_back(b);
+    };
 
-    for (int i = 0; i < 7; i++)
-    {
-        if (tabs[i] == nullptr || tabs[i]->seriesCount() == 0) continue;
-        PdfReport::PlotBlock block;
-        block.caption = captions[i];
-        block.series = tabs[i]->reportSeries();
-        block.sync_markers = tabs[i]->syncMarkers();
-        blocks.push_back(block);
-    }
+    add_quantity(RunSeries::Lat);
+    add_quantity(RunSeries::Lon);
+    add_quantity(RunSeries::Alt);
+    add_quantity(RunSeries::Heading);
+    add_quantity(RunSeries::Pitch);
+    add_quantity(RunSeries::Roll);
+    add_quantity(RunSeries::Vn);
+    add_quantity(RunSeries::Ve);
+    add_quantity(RunSeries::Vh);
+
+    const auto add_diagnostic = [this, &blocks](const QString &caption, const QString &unit,
+                                                const QVector<PlotSeries> &s,
+                                                const QVector<double> &markers) {
+        if (s.isEmpty()) return;
+        PdfReport::PlotBlock b;
+        b.caption = caption;
+        b.series = decimateForReport(s);
+        b.sync_markers = markers;
+        b.x_label = tr("Время, с");
+        b.y_label = unit;
+        blocks.push_back(b);
+    };
+
+    add_diagnostic(tr("Вектор ошибок x (кадры коррекции СНС)"), tr("ошибка"),
+                   errorSeries(), correctionTimes());
+    add_diagnostic(tr("Инновации измерений СНС"), tr("измерение − прогноз"),
+                   innovationSeries(), correctionTimes());
+    add_diagnostic(tr("Диагонали ковариации P"), tr("Pᵢᵢ"), covarianceSeries(), {});
+    add_diagnostic(tr("Согласованность фильтра (NIS / NEES)"), tr("статистика"),
+                   consistencySeries(), correctionTimes());
+
     return blocks;
 }
 
@@ -1166,103 +1296,48 @@ QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
 // прогон. Поскольку прогоны могут иметь разные отметки времени, разность
 // считается по ближайшему по времени отсчёту второго прогона: оба считались на
 // одной и той же записи ИМУ, поэтому временные сетки практически совпадают.
-void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab)
+
+// Сравнение для одной величины (Lat..Ve): ряд второго прогона и, если включено,
+// разность «текущий минус второй» на том же графике.
+void MainWindow::appendCompareField(QVector<PlotSeries> &out, int column) const
 {
     if (!hasComparison()) return;
 
     const RunSeries &B = series_b_;
-    const RunSeries &A = series_;
+    const QVector<double> at = rowTimes(series_.rows);
+    const QVector<double> bt = rowTimes(B.rows);
+    const QString suffix = tr(" [прогон %1]").arg(compare_run_id_);
+    const QString label = quantityTitle(column);
+
+    QVector<double> bv(bt.size());
+    for (int i = 0; i < bt.size(); i++) bv[i] = B.rows[i].result[column];
+    out.push_back(makeSeries(label + suffix, bt, bv, 1, false, true));
+
+    if (!compare_diff_) return;
+
+    QVector<double> av(at.size());
+    for (int i = 0; i < at.size(); i++) av[i] = series_.rows[i].result[column];
+
+    QVector<double> diff;
+    diff.reserve(at.size());
+    for (int i = 0; i < at.size(); i++)
+    {
+        const int j = nearestTimeIndex(B.rows, at[i]);
+        if (j < 0) continue;
+        diff.push_back(av[i] - B.rows[j].result[column]);
+    }
+    if (!diff.isEmpty())
+        out.push_back(makeSeries(tr("Δ %1").arg(label), at, diff, 6, false, true));
+}
+
+void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab) const
+{
+    if (!hasComparison()) return;
+
+    const RunSeries &B = series_b_;
     const QString suffix = tr(" [прогон %1]").arg(compare_run_id_);
 
-    // Индексы полей, по которым строится сравнение, — те же, что у основного
-    // графика: координаты/высота, углы, скорости, компоненты x, диагонали P,
-    // NIS/NEES.
-    QVector<QPair<QString, RunSeries::ResultField>> fields;
-    switch (tab)
-    {
-    case 1:
-        fields.append({tr("Север, м"), RunSeries::Lat});
-        fields.append({tr("Восток, м"), RunSeries::Lon});
-        fields.append({tr("Высота, м"), RunSeries::Alt});
-        break;
-    case 2:
-        fields.append({tr("Курс, °"), RunSeries::Heading});
-        fields.append({tr("Тангаж, °"), RunSeries::Pitch});
-        fields.append({tr("Крен, °"), RunSeries::Roll});
-        break;
-    case 3:
-        fields.append({tr("Vn, м/с"), RunSeries::Vn});
-        fields.append({tr("Vh, м/с"), RunSeries::Vh});
-        fields.append({tr("Ve, м/с"), RunSeries::Ve});
-        break;
-    default:
-        break;
-    }
-
-    // Сравнение по тем же временам, что и у основного ряда.
-    const int n = static_cast<int>(A.rows.size());
-
-    auto rowValue = [](const RunSeries::Row &r, RunSeries::ResultField f) {
-        return r.result[f];
-    };
-
-    if (!fields.isEmpty())
-    {
-        // Широта/долгота сравниваем в метрах от общей точки отсчёта — иначе
-        // разность в градусах читается неоднозначно.
-        const double lat0 = start_lat_ * DEG_TO_RAD;
-        const double lon0 = start_lon_ * DEG_TO_RAD;
-
-        for (int k = 0; k < fields.size(); k++)
-        {
-            const RunSeries::ResultField f = fields[k].second;
-
-            QVector<double> bt(static_cast<int>(B.rows.size()));
-            for (int i = 0; i < bt.size(); i++) bt[i] = rowValue(B.rows[i], f);
-
-            QVector<double> at(n);
-            for (int i = 0; i < n; i++) at[i] = rowValue(A.rows[i], f);
-
-            // Перевод координат в метры — как на основном графике.
-            if (start_valid_ && (f == RunSeries::Lat || f == RunSeries::Lon))
-            {
-                for (int i = 0; i < at.size(); i++)
-                {
-                    at[i] = (at[i] * DEG_TO_RAD - (f == RunSeries::Lat ? lat0 : lon0)) *
-                            R_EARTH * (f == RunSeries::Lon ? std::cos(lat0) : 1.0);
-                }
-                for (int i = 0; i < bt.size(); i++)
-                {
-                    bt[i] = (bt[i] * DEG_TO_RAD - (f == RunSeries::Lat ? lat0 : lon0)) *
-                            R_EARTH * (f == RunSeries::Lon ? std::cos(lat0) : 1.0);
-                }
-            }
-
-            out.push_back(makeSeries(fields[k].first + suffix, rowTimes(A.rows), bt, k, false, true));
-
-            if (compare_diff_)
-            {
-                // Разность по ближайшему времени второго прогона.
-                QVector<double> diff;
-                diff.reserve(n);
-                for (int i = 0; i < n; i++)
-                {
-                    const double t = A.rows[i].time;
-                    int j = nearestTimeIndex(B.rows, t);
-                    if (j < 0) continue;
-                    diff.push_back(at[i] - bt[j]);
-                }
-                if (!diff.isEmpty())
-                {
-                    out.push_back(makeSeries(tr("Δ %1").arg(fields[k].first),
-                                             rowTimes(A.rows), diff, k + 7, false, true));
-                }
-            }
-        }
-        return;
-    }
-
-    // Разреженные ряды (ошибки, инновации, NIS/NEES) — сравниваем покомпонентно.
+    // Диагонали P — покомпонентно, по временам второго прогона.
     if (tab == 6)
     {
         for (int i = 0; i < ins::KF_STATE; i++)
@@ -1278,7 +1353,7 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab)
     for (int i = 0; i < ct.size(); i++) ct[i] = B.corrections[i].time;
     if (ct.isEmpty()) return;
 
-    // Компоненты вектора ошибок x (табы 4, 5).
+    // Компоненты вектора ошибок x (вкладки 4 и 5).
     if (tab == 4 || tab == 5)
     {
         for (int i = 0; i < ins::KF_STATE; i++)
@@ -1290,11 +1365,12 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab)
         return;
     }
 
-    // Согласованность NIS/NEES (таб 7) — из своего разреженного ряда.
+    // Согласованность NIS/NEES (вкладка 7) — из своего разреженного ряда.
     if (tab == 7 && !B.consistency.empty())
     {
         QVector<double> bt(static_cast<int>(B.consistency.size()));
-        QVector<double> bn(bt.size()), be(bt.size());
+        QVector<double> bn(bt.size());
+        QVector<double> be(bt.size());
         for (int i = 0; i < bt.size(); i++)
         {
             bt[i] = B.consistency[i].time;
@@ -1307,10 +1383,12 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab)
     }
 }
 
-void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref)
+void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref,
+                                      QVector<QPointF> *truth)
 {
     nav->clear();
     ref->clear();
+    if (truth != nullptr) truth->clear();
     if (series_.rows.empty()) return;
 
     // Точка отсчёта — из StartupNav.ini (или первый результат, если INI нет).
@@ -1354,19 +1432,38 @@ void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *
                            std::cos(lat0);
         nav->push_back(QPointF(d_e, d_n));
     }
+
+    // Истинная траектория (truth.txt) — в тех же местных координатах. Колонки
+    // истины совпадают с result, поэтому индексы RunSeries::Lat/Lon подходят.
+    if (truth != nullptr && !truth_.isEmpty())
+    {
+        const std::size_t ts = truth_.size();
+        const std::size_t tstep = std::max<std::size_t>(1, ts / kMaxPlotPoints);
+        const auto add_truth = [&](const TruthSample &s) {
+            const double tn = (s.v[RunSeries::Lat] * DEG_TO_RAD - lat0) * R_EARTH;
+            const double te = (s.v[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH * std::cos(lat0);
+            truth->push_back(QPointF(te, tn));
+        };
+        for (std::size_t i = 0; i < ts; i += tstep) add_truth(truth_[i]);
+        if (tstep > 1 && ((ts - 1) % tstep) != 0) add_truth(truth_.back());
+    }
 }
 
 void MainWindow::updateTrajectory()
 {
     if (series_.rows.empty()) return;
 
+    ensureTruthLoaded();
+
     QVector<QPointF> nav;
     QVector<QPointF> ref;
-    buildTrajectoryPoints(&nav, &ref);
+    QVector<QPointF> truth;
+    buildTrajectoryPoints(&nav, &ref, &truth);
 
     plot_trajectory_->setNavPoints(nav);
     plot_trajectory_->setReferencePoints(ref);
     plot_trajectory_->setShowReference(!ref.isEmpty());
+    plot_trajectory_->setTruthPoints(truth);
 }
 
 void MainWindow::onSelectPlot(int index)
@@ -1380,7 +1477,14 @@ void MainWindow::onSelectPlot(int index)
 PlotView *MainWindow::currentPlot() const
 {
     if (plot_tabs_ == nullptr) return nullptr;
-    return qobject_cast<PlotView *>(plot_tabs_->currentWidget());
+
+    QWidget *page = plot_tabs_->currentWidget();
+    if (page == nullptr) return nullptr;
+    if (auto *plot = qobject_cast<PlotView *>(page)) return plot;
+
+    // Вкладка-стопка (координаты/углы/скорости): активен первый график.
+    const auto nested = page->findChildren<PlotView *>();
+    return nested.isEmpty() ? nullptr : nested.first();
 }
 
 QList<PlotView *> MainWindow::allPlots() const
@@ -1389,8 +1493,15 @@ QList<PlotView *> MainWindow::allPlots() const
     if (plot_tabs_ == nullptr) return plots;
     for (int i = 0; i < plot_tabs_->count(); ++i)
     {
-        PlotView *plot = qobject_cast<PlotView *>(plot_tabs_->widget(i));
-        if (plot != nullptr) plots.push_back(plot);
+        QWidget *page = plot_tabs_->widget(i);
+        if (auto *plot = qobject_cast<PlotView *>(page))
+        {
+            plots.push_back(plot);
+            continue;
+        }
+        // Стопка графиков на вкладке — собираем вложенные в порядке укладки.
+        const auto nested = page->findChildren<PlotView *>();
+        for (PlotView *plot : nested) plots.push_back(plot);
     }
     return plots;
 }
@@ -1456,6 +1567,22 @@ void MainWindow::onSettingsChanged()
     saveSettings();
 }
 
+// Предупреждение, если пресет подобран на другом наборе: [meta].dataset не
+// совпадает с именем текущего каталога данных. Пресет применяется в любом
+// случае — это подсказка, а не запрет; старый пресет без [meta] пропускаем.
+void MainWindow::warnIfPresetDatasetMismatch(const QString &preset_path)
+{
+    const PresetMeta meta = readPresetMeta(preset_path);
+    QString warning;
+    if (presetMatchesDataset(meta, control_->settings().data_dir, &warning) ||
+        warning.isEmpty())
+    {
+        return;
+    }
+    log_->append(warning, 1);  // уровень 1 даёт префикс «[ВНИМАНИЕ]»
+    statusBar()->showMessage(warning, 10000);
+}
+
 void MainWindow::onLoadSettingsFile()
 {
     const QString path = QFileDialog::getOpenFileName(
@@ -1475,6 +1602,7 @@ void MainWindow::onLoadSettingsFile()
     control_->setSettings(settings_);
     saveSettings();
     log_->append(tr("Параметры загружены из %1").arg(path));
+    warnIfPresetDatasetMismatch(path);
 }
 
 void MainWindow::onSaveSettingsFile()
@@ -1551,6 +1679,7 @@ void MainWindow::onApplyTuningPreset(const QString &path)
     params_->applyToCore();
     saveSettings();
     log_->append(tr("Подобранный пресет применён: %1").arg(path));
+    warnIfPresetDatasetMismatch(path);
 }
 
 void MainWindow::onTuningLog(const QString &text, int level)
@@ -1680,9 +1809,26 @@ bool MainWindow::exportReportTo(const QString &path, QString *error)
         options.dataset = QDir(settings_.data_dir).dirName();
     options.preset = settings_.settings_file;
 
+    // Паспорт набора: сверка секции [meta] пресета с выбранным каталогом
+    // данных. Старый пресет без [meta] и обычный settings.ini дают «нет».
+    if (!settings_.settings_file.isEmpty())
+    {
+        const PresetMeta meta = readPresetMeta(settings_.settings_file);
+        const QString current = QDir(settings_.data_dir).dirName();
+        const QString tuned = meta.dataset.trimmed();
+        if (!meta.present || tuned.isEmpty())
+            options.preset_note = tr("нет (пресет без секции [meta])");
+        else if (!current.isEmpty() && tuned == current)
+            options.preset_note = tr("совпадает");
+        else
+            options.preset_note = tr("пресет подобран на наборе «%1»").arg(tuned);
+    }
+
     // Наземная истина набора: если truth.txt корректен, ошибки прогона
     // считаются по нему (как в отчёте о подборе), иначе — по эталону СНС.
-    loadDatasetTruth(settings_.data_dir, &options.truth);
+    // Тот же кэш используется для наложения истины на графики.
+    ensureTruthLoaded();
+    options.truth = truth_;
 
     // Снимок параметров: у сохранённого прогона берём их из истории, иначе —
     // текущие значения таблицы «Параметры».
@@ -1852,10 +1998,10 @@ void MainWindow::onExportAllPlots()
 
     QList<PlotExportItem> items;
     items.reserve(plots.size());
-    for (int i = 0; i < plot_tabs_->count(); ++i)
+    for (PlotView *plot : plots)
     {
-        PlotView *plot = qobject_cast<PlotView *>(plot_tabs_->widget(i));
-        if (plot != nullptr) items.push_back({plot_tabs_->tabText(i), plot});
+        const QString name = plot->title().isEmpty() ? tr("график") : plot->title();
+        items.push_back({name, plot});
     }
 
     QProgressDialog progress(tr("Экспорт графиков…"), tr("Отмена"), 0, items.size(), this);
@@ -2127,14 +2273,9 @@ void MainWindow::applyTheme(bool dark)
     }
     QApplication::setPalette(p);
 
-    plot_trajectory_->setTheme(dark);
-    plot_position_->setTheme(dark);
-    plot_attitude_->setTheme(dark);
-    plot_velocity_->setTheme(dark);
-    plot_errors_->setTheme(dark);
-    plot_innovation_->setTheme(dark);
-    plot_covariance_->setTheme(dark);
-    plot_consistency_->setTheme(dark);
+    const auto plots = allPlots();
+    for (PlotView *plot : plots) plot->setTheme(dark);
+    if (report_canvas_ != nullptr) report_canvas_->setTheme(dark);
 }
 
 // ------------------------------------------------------------ История

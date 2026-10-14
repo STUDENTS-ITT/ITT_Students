@@ -972,6 +972,8 @@ def save_best_txt(best, results_top, sens=None):
     lines = []
     lines.append("=== Подобранные параметры фильтра Калмана ===")
     lines.append(f"данные            : {DATA_DIR}")
+    dataset_name = os.path.basename(os.path.normpath(str(DATA_DIR))) if DATA_DIR else ""
+    lines.append(f"набор             : {dataset_name}")
     ref_truth = os.environ.get("TUNE_REF_TRUTH") == "1"
     lines.append("эталон ошибки     : " + ("truth.txt (наземная истина)" if ref_truth
                                           else "reference.txt (эталон СНС)"))
@@ -1183,10 +1185,25 @@ def save_preset(best, preset_path):
              ("sigma_pos", "sigma_pos"), ("sigma_h", "sigma_h"),
              ("sigma_v", "sigma_v"), ("sigma_ang", "sigma_hdg")]
 
+    # Паспорт набора для секции [meta]: имя каталога данных и эталон ошибки.
+    data_dir = str(globals().get("DATA_DIR", "") or "")
+    dataset_name = os.path.basename(os.path.normpath(data_dir)) if data_dir else ""
+    ref_truth = os.environ.get("TUNE_REF_TRUTH") == "1"
+
     lines = ["# Пресет подобранных коэффициентов КФ (см. tools/kalman_tuner).",
              "# Применение явное: imitator <data_dir> <preset.ini>.",
-             "# Отсутствующие ключи берутся из значений по умолчанию.", ""]
-    lines.append("[filter]")
+             "# Отсутствующие ключи берутся из значений по умолчанию.",
+             "",
+             "# Паспорт набора: с каким каталогом данных подобран пресет. Секция",
+             "# [meta] ядру неизвестна (loadFilterSettings читает только",
+             "# filter/tilt/run) и на математику не влияет — GUI использует её",
+             "# для сверки имён «набор ↔ пресет».",
+             "[meta]",
+             f"dataset = {dataset_name}",
+             f"data_dir = {data_dir}",
+             f"error_ref = {'truth.txt' if ref_truth else 'reference.txt'}",
+             "",
+             "[filter]"]
     for tuner_key, ini_key in names:
         lines.append(f"{ini_key} = {sigma[tuner_key]:.17g}")
     lines.append("")

@@ -46,6 +46,8 @@ public:
 
     // Оси.
     void setAxisLabels(const QString &x, const QString &y);
+    QString xLabel() const { return x_label_; }
+    QString yLabel() const { return y_label_; }
     void setTitle(const QString &title);
     QString title() const { return title_; }
 
@@ -163,6 +165,13 @@ protected:
     void niceRange(double &lo, double &hi);
 
     const QVector<PlotSeries> &series() const { return series_; }
+
+    // Цвета темы: нужны наследникам с собственной отрисовкой (траектория
+    // рисует линии и легенду сама, не через paintContent базового класса).
+    const QColor &backgroundColor() const { return background_; }
+    const QColor &textColor() const { return text_color_; }
+    const QColor &axisColor() const { return axis_color_; }
+    bool isDarkTheme() const { return dark_; }
 
     // Индекс ближайшей точки по X (для подсказки).
     int nearestPointIndex(const QString &name, double x) const;

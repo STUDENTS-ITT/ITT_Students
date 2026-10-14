@@ -152,9 +152,24 @@ private:
     // Построение рядов графиков из накопленной телеметрии.
     void rebuildPlotSeries(int tab);
 
+    // Наземная истина набора: читает <data_dir>/truth.txt при смене каталога.
+    void ensureTruthLoaded();
+
+    // Ряды временных графиков (оценка + истина, плюс второй прогон). Общие для
+    // вкладок и сводного отчёта, чтобы экран и PDF строились одинаково.
+    QVector<PlotSeries> quantitySeries(int column) const;  // Lat..Ve
+    QVector<PlotSeries> errorSeries() const;               // x[0..14]
+    QVector<PlotSeries> innovationSeries() const;          // z СНС
+    QVector<PlotSeries> covarianceSeries() const;          // diag P
+    QVector<PlotSeries> consistencySeries() const;         // NIS/NEES
+    QVector<double> correctionTimes() const;               // моменты коррекции, с
+
+    // Добавление ряда второго прогона (пунктир) для одной величины.
+    void appendCompareField(QVector<PlotSeries> &out, int column) const;
+
     // Добавление рядов второго прогона (пунктир) и, если включено, разности
-    // «текущий минус второй» на том же графике.
-    void appendCompareSeries(QVector<PlotSeries> &out, int tab);
+    // «текущий минус второй» на том же графике (диагностические вкладки).
+    void appendCompareSeries(QVector<PlotSeries> &out, int tab) const;
 
     // Текущий график (вкладка) для экспорта.
     PlotView *currentPlot() const;
@@ -177,13 +192,18 @@ private:
     // Перевод географических координат в метры от точки старта.
     void updateTrajectory();
 
-    // Точки траектории (БИНС) и эталона СНС в метрах от точки старта —
+    // Точки траектории (БИНС), эталона СНС и истины в метрах от точки старта —
     // общий код для updateTrajectory() и экспорта анимации.
-    void buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref);
+    void buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref,
+                               QVector<QPointF> *truth = nullptr);
 
     void applyTheme(bool dark);
     void saveSettings();
     void showAbout();
+
+    // Предупреждение, если применённый пресет подобран на другом наборе
+    // (секция [meta] не совпадает с каталогом данных). Не блокирует.
+    void warnIfPresetDatasetMismatch(const QString &preset_path);
 
     // --- Данные ---
     AppSettings settings_;
@@ -198,6 +218,11 @@ private:
     double start_lat_ = 0;
     double start_lon_ = 0;
     bool start_valid_ = false;
+
+    // Наземная истина набора (truth.txt): кэш для наложения на графики.
+    // Перечитывается при смене каталога данных (truth_dir_).
+    QVector<TruthSample> truth_;
+    QString truth_dir_;
 
     bool running_ = false;
     bool stopping_ = false;
@@ -216,9 +241,17 @@ private:
 
     QTabWidget *plot_tabs_ = nullptr;
     TrajectoryPlot *plot_trajectory_ = nullptr;
-    TimeSeriesPlot *plot_position_ = nullptr;
-    TimeSeriesPlot *plot_attitude_ = nullptr;
-    TimeSeriesPlot *plot_velocity_ = nullptr;
+    // Раздельные временные графики по величинам: у каждой свой масштаб и
+    // легенда (оценка БИНС и истина одной и той же величины).
+    TimeSeriesPlot *plot_lat_ = nullptr;
+    TimeSeriesPlot *plot_lon_ = nullptr;
+    TimeSeriesPlot *plot_alt_ = nullptr;
+    TimeSeriesPlot *plot_heading_ = nullptr;
+    TimeSeriesPlot *plot_pitch_ = nullptr;
+    TimeSeriesPlot *plot_roll_ = nullptr;
+    TimeSeriesPlot *plot_vn_ = nullptr;
+    TimeSeriesPlot *plot_ve_ = nullptr;
+    TimeSeriesPlot *plot_vh_ = nullptr;
     TimeSeriesPlot *plot_errors_ = nullptr;
     TimeSeriesPlot *plot_innovation_ = nullptr;
     TimeSeriesPlot *plot_covariance_ = nullptr;

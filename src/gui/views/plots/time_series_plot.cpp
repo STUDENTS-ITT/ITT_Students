@@ -253,10 +253,16 @@ void TimeSeriesPlot::paintContent(QPainter &painter, const QRectF &rect)
     if (!sync_times_.isEmpty())
     {
         painter.save();
-        painter.setPen(QPen(QColor(200, 60, 60, 90), 1.0, Qt::DotLine));
-        for (double t : sync_times_)
+        // За длинный прогон коррекций тысячи. Пунктир здесь недопустим: QPainter
+        // раскладывает каждую точку пунктира в отдельный путь, и на несколько
+        // тысяч линий файл (и PDF) раздувается в десятки раз. Рисуем сплошные
+        // тонкие линии и прореживаем, чтобы не залить поле построения.
+        painter.setPen(QPen(QColor(200, 60, 60, 70), 1.0));
+        const int total = sync_times_.size();
+        const int step = std::max(1, total / 400);
+        for (int i = 0; i < total; i += step)
         {
-            const double x = mapToScreen(t, 0.0, rect).x();
+            const double x = mapToScreen(sync_times_[i], 0.0, rect).x();
             painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()));
         }
         painter.restore();

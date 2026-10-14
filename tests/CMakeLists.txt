@@ -50,6 +50,7 @@ qt_add_executable(test_plots
     test_plots.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/plot_view.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/time_series_plot.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/views/plots/trajectory_plot.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/export/plot_exporter.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/export/animation_exporter.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/export/gif_writer.cpp
@@ -126,6 +127,7 @@ qt_add_executable(test_tuning_report
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/plot_view.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/views/plots/time_series_plot.cpp
     ${CMAKE_SOURCE_DIR}/src/gui/export/tuning_report.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/settings/preset_meta.cpp
 )
 target_link_libraries(test_tuning_report PRIVATE
     Qt6::Test Qt6::Widgets Qt6::PrintSupport Qt6::Svg esfcore)
@@ -205,6 +207,27 @@ set_tests_properties(test_dataset_truth PROPERTIES
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_dataset_truth PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Паспорт набора в пресете (секция [meta]): сверка имён «набор ↔ пресет» —
+# код Qt-слоя, собираем исходник напрямую (как test_dataset_truth).
+qt_add_executable(test_preset_meta
+    test_preset_meta.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/settings/preset_meta.cpp
+)
+target_link_libraries(test_preset_meta PRIVATE Qt6::Test Qt6::Core)
+target_include_directories(test_preset_meta PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_preset_meta COMMAND test_preset_meta)
+set_tests_properties(test_preset_meta PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_preset_meta PROPERTIES ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
 endif()
 

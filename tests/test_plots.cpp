@@ -27,9 +27,11 @@
 #include "export/animation_exporter.h"
 #include "export/plot_exporter.h"
 #include "views/plots/time_series_plot.h"
+#include "views/plots/trajectory_plot.h"
 
 using gui::PlotSeries;
 using gui::TimeSeriesPlot;
+using gui::TrajectoryPlot;
 
 namespace
 {
@@ -240,6 +242,7 @@ private slots:
     void cacheFollowsDataChanges();
     void disabledCacheDrawsWithoutPixmap();
     void cursorDrawnOnFirstFrame();
+    void trajectoryTruthOverlay();
     void batchesExportAllPlots();
     void animationExport();
 };
@@ -529,6 +532,49 @@ void TestPlots::cursorDrawnOnFirstFrame()
 
     QVERIFY2(with_cursor != without_cursor,
              "курсор должен попадать в первый кадр, а не только в кэш");
+}
+
+void TestPlots::trajectoryTruthOverlay()
+{
+    TrajectoryPlot plot;
+    plot.resize(600, 400);
+
+    // Оценка БИНС — прямая из (0, 0) в (100, 100) м от старта.
+    QVector<QPointF> nav;
+    for (int i = 0; i <= 20; ++i) nav.push_back(QPointF(i * 5.0, i * 5.0));
+    plot.setNavPoints(nav);
+    QVERIFY(!plot.hasTruth());
+
+    const auto render = [&plot]() {
+        QImage img(600, 400, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        plot.renderTo(p, img.size());
+        return img;
+    };
+
+    // Первый кадр строит сетку до пересчёта авто-масштаба внутри paintContent,
+    // поэтому берём за эталон уже установившийся второй кадр.
+    render();
+    const QImage without = render();
+    const int painted_without = paintedPixels(without, Qt::white);
+    QVERIFY(painted_without > 0);
+
+    // Истина лежит внутри охвата оценки, поэтому масштаб не меняется: на
+    // графике просто появляется вторая (горизонтальная) линия.
+    QVector<QPointF> truth;
+    for (int i = 0; i <= 20; ++i) truth.push_back(QPointF(i * 5.0, 20.0));
+    plot.setTruthPoints(truth);
+    QVERIFY(plot.hasTruth());
+
+    const QImage with = render();
+    QVERIFY2(paintedPixels(with, Qt::white) > painted_without,
+             "истинная траектория не нарисована");
+
+    // Сброс истины возвращает исходную картинку.
+    plot.clearTruth();
+    QVERIFY(!plot.hasTruth());
+    QCOMPARE(render(), without);
 }
 
 void TestPlots::batchesExportAllPlots()

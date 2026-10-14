@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cmath>
 
+#include <QFontMetrics>
 #include <QPainter>
+#include <QPolygonF>
 
 namespace gui
 {
@@ -13,12 +15,13 @@ namespace
 {
 const QColor kNavColor(31, 119, 180);
 const QColor kRefColor(214, 39, 40);
+const QColor kTruthColor(0, 150, 60);
 } // namespace
 
 TrajectoryPlot::TrajectoryPlot(QWidget *parent) : PlotView(parent)
 {
     setTitle(tr("Траектория (местные координаты)"));
-    setAxisLabels(QString(), tr("север, м"));
+    setAxisLabels(tr("восток, м"), tr("север, м"));
     setLegendVisible(false);
     setShowEndMarker(false);
     setMarginLeft(66);
@@ -56,6 +59,20 @@ void TrajectoryPlot::setReferencePoints(const QVector<QPointF> &points)
 void TrajectoryPlot::clearReference()
 {
     ref_.clear();
+    invalidateCache();
+    update();
+}
+
+void TrajectoryPlot::setTruthPoints(const QVector<QPointF> &points)
+{
+    truth_ = points;
+    invalidateCache();
+    update();
+}
+
+void TrajectoryPlot::clearTruth()
+{
+    truth_.clear();
     invalidateCache();
     update();
 }
@@ -107,6 +124,7 @@ void TrajectoryPlot::recomputeView()
 
     consider(nav_);
     if (show_reference_) consider(ref_);
+    if (!truth_.isEmpty()) consider(truth_);
 
     if (first)
     {
@@ -134,6 +152,7 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
 
     painter.save();
 
+    // Эталон СНС — разреженные точки (измерение, а не траектория).
     if (show_reference_ && !ref_.isEmpty())
     {
         painter.setPen(QPen(kRefColor, 1.0));
@@ -143,6 +162,17 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
             const QPointF s = mapToScreen(p.x(), p.y(), rect);
             painter.drawEllipse(s, 2.2, 2.2);
         }
+    }
+
+    // Истинная траектория — пунктиром, чтобы отличать от оценки.
+    if (!truth_.isEmpty())
+    {
+        QPolygonF poly;
+        poly.reserve(truth_.size());
+        for (const QPointF &p : truth_) poly.push_back(mapToScreen(p.x(), p.y(), rect));
+        painter.setPen(QPen(kTruthColor, 1.6, Qt::DashLine));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPolyline(poly);
     }
 
     if (!nav_.isEmpty())
@@ -170,6 +200,54 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
         }
     }
 
+    drawTrajectoryLegend(painter, rect);
+
+    painter.restore();
+}
+
+void TrajectoryPlot::drawTrajectoryLegend(QPainter &painter, const QRectF &rect) const
+{
+    struct Item
+    {
+        QString name;
+        QColor color;
+        bool dashed;
+    };
+    QVector<Item> items;
+    items.push_back({tr("БИНС (оценка)"), kNavColor, false});
+    if (show_reference_ && !ref_.isEmpty())
+        items.push_back({tr("СНС (эталон)"), kRefColor, false});
+    if (!truth_.isEmpty()) items.push_back({tr("истина"), kTruthColor, true});
+
+    if (items.isEmpty()) return;
+
+    painter.save();
+    QFont f = painter.font();
+    f.setPointSizeF(std::max(7.0, f.pointSizeF() - 1.0));
+    painter.setFont(f);
+    const QFontMetrics fm(f);
+
+    int width = 0;
+    for (const Item &it : items) width = std::max(width, fm.horizontalAdvance(it.name) + 30);
+    const int row = fm.height() + 2;
+    const QRectF box(rect.left() + 6, rect.top() + 6, width + 10, row * items.size() + 8);
+
+    painter.setPen(QPen(axisColor(), 1.0));
+    const QColor bg = backgroundColor();
+    painter.setBrush(QColor(bg.red(), bg.green(), bg.blue(), isDarkTheme() ? 220 : 245));
+    painter.drawRoundedRect(box, 3, 3);
+
+    painter.setPen(textColor());
+    double y = box.top() + 4;
+    for (const Item &it : items)
+    {
+        painter.setPen(QPen(it.color, 1.6, it.dashed ? Qt::DashLine : Qt::SolidLine));
+        painter.drawLine(QPointF(box.left() + 5, y + row / 2.0 - 2),
+                         QPointF(box.left() + 21, y + row / 2.0 - 2));
+        painter.setPen(textColor());
+        painter.drawText(QPointF(box.left() + 25, y + fm.ascent() + 1), it.name);
+        y += row;
+    }
     painter.restore();
 }
 

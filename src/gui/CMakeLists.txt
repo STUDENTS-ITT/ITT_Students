@@ -36,6 +36,8 @@ qt_add_executable(imitator_gui
     settings/app_settings.h
     settings/dataset_truth.cpp
     settings/dataset_truth.h
+    settings/preset_meta.cpp
+    settings/preset_meta.h
 
     views/plots/plot_view.cpp
     views/plots/plot_view.h
