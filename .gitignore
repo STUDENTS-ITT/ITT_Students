@@ -12,6 +12,7 @@ INS_Data/
 /build/
 /build_debug/
 /out/
+/out_first_run/
 /cmake-build-*/
 
 # Крупные входные данные и внешний референсный датасет
