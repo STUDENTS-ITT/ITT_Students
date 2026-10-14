@@ -64,6 +64,11 @@ TARGET_EXE = "imitator.exe"
 
 # v3: отдельный рабочий каталог в папке скрипта (не трогает temp_tune_v2).
 WORK_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_tune_v3")
+# Дочерние процессы (multiprocessing spawn на Windows) переимпортируют модуль и
+# не видят переопределённый в родителе WORK_ROOT. Пробрасываем его, как DATA_DIR,
+# через переменную окружения — иначе оценки этапа 2 пишутся в каталог по умолчанию.
+if os.environ.get("TUNE_WORK_ROOT"):
+    WORK_ROOT = os.environ["TUNE_WORK_ROOT"]
 
 # Параметры подбора: (имя, sigma_ref, полуширина диапазона u = log10(sigma/sigma_ref)).
 # Полуширины ЗАДАЮТ ФИЗИЧЕСКИ ПРАВДОПОДОБНЫЙ диапазон (см. примечание ниже):
@@ -1081,6 +1086,7 @@ def load_config(config_path=None):
     if "work_root" in cfg:
         WORK_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                  cfg["work_root"])
+        os.environ["TUNE_WORK_ROOT"] = WORK_ROOT
 
     p = cfg.get("params")
     if p:
@@ -1240,7 +1246,8 @@ def main():
         DATA_DIR = cli_data
         os.environ["TUNE_DATA_DIR"] = DATA_DIR
     if cli_work:
-        WORK_ROOT = cli_work
+        WORK_ROOT = os.path.abspath(cli_work)
+        os.environ["TUNE_WORK_ROOT"] = WORK_ROOT
     if quick:
         N_GLOBAL, N_LOCAL, N_WORKERS, N_GLOBAL2 = 16, 30, 8, 8
         print("Быстрый режим: N_GLOBAL=16, N_LOCAL=30, N_GLOBAL2=8")
