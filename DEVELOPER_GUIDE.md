@@ -1,154 +1,157 @@
-﻿# Руководство для программиста DEVELOPER_GUIDE.md
+﻿# Руководство для программиста (DEVELOPER_GUIDE.md)
 
-## 1. Цель
-Настоящий документ описывает архитектуру, правила разработки, процесс сборки, тестирования и развёртывания Qt-версии проекта imitator_gui. Предназначен для разработчиков, вносящих изменения в кодовую базу.
+## 1. Цель документа
+Подробное описание архитектуры, структуры, правил разработки, сборки, тестирования, отладки и релиза консольной и Qt-версии imitator.
 
-## 2. Общая информация
-- Рабочий проект: C:\ITT_Students_Qt_Version
-- Эталонные исходники (только для чтения): C:\ITT_Students
-- Цель: Qt 6.12.0 GUI-обвязка поверх существующего ESKF/БИНС-СНС комплекса
-- Ядро должно оставаться Qt-независимым. Весь Qt-код – только в src/gui/
+## 2. Общие сведения
+- Рабочий каталог: `C:\ITT_Students_Qt_Version`
+- Эталон: `C:\ITT_Students` (только чтение)
+- Репозиторий: https://github.com/STUDENTS-ITT/ITT_Students, ветка Anton
+- C++17, Qt 6.12.0 (mingw_64), CMake >= 3.16
 
 ## 3. Архитектура
-Согласно docs/qt_integration_proposal.md проект разделён на слои:
 
-- src/core (Qt-free): ins/, nav/, math_lib/, utils/, data_io/. Статическая библиотека esfcore (C++17, STL). Запрещены #include <Q...>
-- src/console: консольный main.cpp, цель imitator. Линкуется с esfcore. Сохраняет обратную совместимость
-- src/gui (Qt): QtWidgets-приложение imitator_gui. Использует QtConcurrent, QSettings, QtSql. Графики – только QPainter (без QtCharts/QtGraphs/QtQuick3D)
+Проект разделён на два логических слоя: **Qt-независимое ядро** и **Qt-оболочку**.
 
-## 4. Конвенции core
-- ESKF – 15 состояний (не менять без обоснования)
-- Матрицы хранятся построчно (row-major)
-- Явная передача числа столбцов: multiply_matrix(A,B,cols_A,cols_B), transpose_m(A,cols), multiply_m(A,v,cols_A), at(A,i,j,cols)
-- Углы в ядре – радианы. На выходе – градусы (RAD_TO_DEG)
-- Комментарии на русском языке, без избыточных восклицательных знаков
-- Сохранение бит-в-бит идентичности консольного вывода (result.txt, reference.txt, errors.txt) при корректном рабочем каталоге
+```mermaid
+flowchart TB
+    subgraph core["src/core — esfcore (C++17, STL, БЕЗ Qt)"]
+        data_io["data_io<br/>ImuReader / SnsReader<br/>data_writer<br/>dataset_generator"]
+        ins["ins<br/>ESKF 15 состояний<br/>attitude_calc / imu_processor"]
+        math["math_lib<br/>matrix_ops / statistics<br/>transformations / interpolation"]
+        nav["navigation<br/>Aligner / position_calc<br/>trajectory / simulation"]
+        utils["utils<br/>constants / paths / types"]
+    end
 
-## 5. Структура
-`
-C:\ITT_Students_Qt_Version\
-  src/
-    core/      # Qt-free ядро
-    console/   # консольная версия
-    gui/       # GUI на Qt
-  tests/       # unit-тесты
-  docs/        # документация
-  dist/        # портативная сборка
-  CMakeLists.txt
-  USER_GUIDE.md
-  DEVELOPER_GUIDE.md
-`
+    subgraph console["src/console — цель imitator"]
+        cmain["main.cpp"]
+    end
 
-## 6. Окружение сборки
-- Windows 10/11 x64
-- Qt 6.12.0 mingw_64: C:/QT6.10/6.12.0/mingw_64
-- MinGW GCC 16.1.0: C:/Users/anton/.mingw64/mingw64/bin
-- CMake >= 3.16
-- Ninja (рекомендуется)
+    subgraph gui["src/gui — imitator_gui (QtWidgets)"]
+        gmain["main.cpp<br/>самопроверка, --self-test"]
+        mw["MainWindow<br/>меню, вкладки, сценарии"]
+        worker["SimulationWorker (QThread)<br/>SimulationObserver + CancellationToken<br/>RunPacerImpl"]
+        store["RunStore (QtSql/SQLite)<br/>история прогонов"]
+        views["views/ (QPainter)<br/>PlotView / TimeSeriesPlot / TrajectoryPlot<br/>ControlPanel / DataPanel / ParamsPanel<br/>TuningPanel / LogPanel / StatePanel"]
+        export["export/<br/>plot_exporter / pdf_report<br/>animation_exporter / gif_writer"]
+        settings["settings/ AppSettings (QSettings)"]
+    end
 
-## 7. Конфигурация и сборка
-`ash
-# Конфигурация
+    cmain --> core
+    gmain --> mw
+    mw --> worker
+    mw --> views
+    mw --> export
+    mw --> store
+    mw --> settings
+    worker -->|"nav::runSimulation(RunOptions)"| nav
+    worker -->|"onResult / onCorrection / onState"| worker
+    store -->|"SQLite"| mw
+```
+
+Ключевой принцип: ядро `core/` ничего не знает о Qt. GUI подключается к нему только через C++-интерфейсы (`RunOptions`, `SimulationObserver`, `CancellationToken`, `RunPacer`). GUI-поток наследует `SimulationObserver` (`SimulationWorker`) и вызывает `nav::runSimulation` в отдельном `QThread`.
+
+## 4. Поток данных прогона
+
+```mermaid
+sequenceDiagram
+    participant U as Пользователь
+    participant MW as MainWindow
+    participant W as SimulationWorker (QThread)
+    participant Core as nav::runSimulation (core)
+    participant RS as RunStore (SQLite)
+
+    U->>MW: «Запустить» (F5)
+    MW->>MW: собрать RunOptions (data_dir, output_dir, settings, pacer)
+    MW->>W: configure + start
+    W->>Core: runSimulation(options, summary, observer)
+    loop по каждому такту ИМУ (200 Гц)
+        Core-->>W: onResult / onState / onProgress
+        W-->>MW: stateUpdate / progress (queued)
+    end
+    Core-->>W: onCorrection (кадры коррекции)
+    Core-->>W: onAlignment (итоги выставки)
+    Core-->>W: возврат (RunSummary)
+    W-->>MW: finished(ok, message)
+    MW->>RS: beginRun/appendSamples/appendErrors/appendCovariances
+    RS-->>MW: id прогона (история)
+```
+
+## 5. Конвенции core
+- ESKF 15 состояний.
+- Матрицы row-major, число столбцов передаётся явно: `multiply_matrix(A,B,cols_A,cols_B)`, `transpose_m(A,cols)`, `multiply_m(A,v,cols_A)`, `at(A,i,j,cols)`.
+- Углы в ядре — радианы, на выходе — градусы (`RAD_TO_DEG`).
+- Комментарии на русском.
+- Побайтовый паритет `result.txt`/`reference.txt`/`errors.txt` при корректном `cwd` и одинаковом `settings.ini`.
+
+## 6. Ключевые классы и типы
+
+| Тип | Файл | Назначение |
+|-----|------|-----------|
+| `RunOptions` | `core/navigation/simulation.h` | Параметры прогона: `data_dir`, `output_dir`, `settings_file`, `write_files`, `capture_telemetry`, `pacer`, `speed_factor`. |
+| `RunSummary` | `core/navigation/simulation.h` | Итоги: координаты выставки, начальные углы, `steps`, `corrections`, `wall_seconds`, `has_angle`. |
+| `SimulationObserver` | `core/navigation/simulation.h` | Обратная связь из цикла: `onAlignment`, `onResult`, `onCorrection`, `onState`, `onProgress`. |
+| `CancellationToken` | `core/navigation/simulation.h` | Проверка отмены расчёта. |
+| `RunPacer` | `core/navigation/simulation.h` | Темп/пауза воспроизведения (реализуется в GUI). |
+| `nav::NavState`, `nav::StepTelemetry` | `core/navigation/*` | Полное состояние и диагностика фильтра на такте. |
+| `ImuReader`, `SnsReader` | `core/data_io/data_reader.h` | Чтение `imu.dat`, `gps.dat`+`angle.dat` (стыковка углов по времени). |
+| `dataset::DatasetConfig/Report` | `core/data_io/dataset_generator.h` | Генерация синтетических наборов (`generateDataset`). |
+| `SimulationWorker` | `gui/workers/simulation_worker.h` | GUI-обёртка: `SimulationObserver` в `QThread`, сигналы прогресса/финиша. |
+| `RunStore` | `gui/core_bridge/run_store.h` | История прогонов в SQLite (`runs`, `samples`, `filter_errors`, `covariances`). |
+| `PlotView` / `TimeSeriesPlot` / `TrajectoryPlot` | `gui/views/plots/*` | Графики на `QPainter` с кэшем кадров. |
+| `ControlPanel` / `DataPanel` / `ParamsPanel` | `gui/views/*` | Панели управления, данных и параметров. |
+| `TuningPanel` | `gui/views/tuning_panel.h` | Запуск `tools/kalman_tuner/tune_kalman.py` и применение пресетов. |
+| `AppSettings` | `gui/settings/app_settings.h` | Настройки приложения (`QSettings`). |
+| `PlotExporter` / `exportReportTo` / `AnimationExporter` | `gui/export/*` | Экспорт PNG/JPG/SVG/PDF/CSV/GIF и сводный PDF-отчёт. |
+
+## 7. Структура
+```
+ITT_Students_Qt_Version/
+├── src/{core,console,gui}
+├── tests/
+├── tools/            # kalman_tuner/, plot_*.py, check_no_qt_in_core.cmake
+├── presets/          # tuned*.ini
+├── docs/
+├── dist/             # генерируется
+├── build/            # игнорируется
+├── CMakeLists.txt
+├── USER_GUIDE.md
+├── DEVELOPER_GUIDE.md
+└── AGENTS.md
+```
+
+## 8. Сборка (quickstart)
+```bash
 cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_PREFIX_PATH="C:/QT6.10/6.12.0/mingw_64"
-
-# Полная сборка
 cmake --build build
+```
+Цели: `esfcore`, `imitator`, `imitator_gui`. Release: добавить `-DCMAKE_BUILD_TYPE=Release`.
+Проверка Qt-free ядра: `cmake -DITT_CORE_DIR="<abs>/src/core" -P "tools/check_no_qt_in_core.cmake"`.
 
-# Отдельные цели
-cmake --build build --target esfcore
-cmake --build build --target imitator
-cmake --build build --target imitator_gui
-`
-
-## 8. Тестирование
-`ash
-# Запуск всех тестов (GUI-тесты в offscreen)
+## 9. Тестирование
+```bash
 set QT_QPA_PLATFORM=offscreen
 ctest --test-dir build --output-on-failure
-`
+```
+Тесты включают `core_has_no_qt`, `test_matrix_ops`, `test_transformations`, `test_statistics`, `test_ins_filter`, `test_data_io`, `test_data_source`, `test_settings`, `test_run_store`, `test_simulation`, `test_plots`, `test_pdf_report`, `test_matrices_exporter`, `test_dataset_generator`, `test_parity`, а также GUI-smoke с генерацией набора (`gui_smoke_generate` — CTest fixture, затем `gui_smoke`). Всего 17 тестов.
 
-Тестовый набор (11):
-- core_has_no_qt – проверка отсутствия Qt-зависимостей в core/
-- gui_smoke – базовый smoke-тест GUI
-- test_matrix_ops, test_transformations, test_statistics, test_ins_filter
-- test_data_io, test_settings, test_simulation
-- test_plots – кэш PlotView, курсор, инвалидация
-- test_pdf_report – PDF-сводка, восстановление canvas, сигнатура
+## 10. PlotView
+Ключ кэша — версия, размер, диапазоны X/Y. API: `setCacheEnabled`/`isCacheEnabled`/`cacheHits`/`cacheMisses`/`invalidateCache`/`isCacheValid`/`rebuildCache`. При disabled — прямая отрисовка, счётчики не растут. Курсор поверх кэша. Инвалидация обязательна при изменении отрисовки.
 
-Все должны быть пройдены.
+## 11. PDF-отчёт
+`QPdfWriter`, A4, dof=9. Сохранение/восстановление series и sync_markers, графики через `renderTo()`.
 
-## 9. PlotView (графики и кэш)
-Файлы: src/gui/views/plots/plot_view.h/.cpp
-- Ключ кэша включает: версию состояния данных, размер виджета, диапазоны cache_x0/cache_x1/cache_y0/cache_y1
-- API: setCacheEnabled(bool), isCacheEnabled(), cacheHits(), cacheMisses(), invalidateCache(), isCacheValid(), rebuildCache()
-- Поведение при cache_enabled=false: прямая отрисовка, QPixmap не создаётся/не используется, кэш очищается, счётчики не инкрементируются
-- Курсор мыши (mouseMove/hover) дорисовывается поверх кэшированного кадра при первом промахе кэша – не попадает в QPixmap
-- Инвалидация при любых изменениях, влияющих на содержимое/диапазоны (смена данных, добавление/удаление рядов, масштаб/скролл, resize)
+## 12. История/фильтр
+`HistoryModel` + `QSortFilterProxyModel` (ParamsPanel), фильтр по имени/дате/каталогу, сортировка по дате по умолчанию, `mapToSource()` корректен.
 
-## 10. PDF-отчёт
-src/gui/export/pdf_report.h/.cpp
-- QPdfWriter, формат A4
-- PdfReport::summarize() – сводка NIS/NEES, RMS/максимумы по 15 компонентам
-- PdfReport::build() – генерация титульного листа, таблиц, графиков
-- Вставка графиков через QWidget::renderTo() (либо через PlotBlock с QVector<PlotSeries> + sync_markers)
-- Сохранение и восстановление состояния canvas: список рядов и sync_markers (после экспорта GUI не меняется)
-- dof = 9 (ins::KF_MEAS)
+## 13. Self-test, deploy, паритет
+Self-test проверяет `%PDF`. Deploy формирует `dist/` (`windeployqt` + MinGW runtime + плагины). Паритет — побайтовое совпадение при корректном `cwd` и одинаковом `settings.ini`; для одновременного запуска — разные `cwd`.
 
-Интеграция: MainWindow::onExportReport(), buildReportBlocks(), exportReportTo(...)
+## 14. Правила
+core только STL/C++17, без Qt (`core_has_no_qt`). Сохранять ESKF и матричные конвенции. Графика только `QPainter`. После правок — `ctest`. `build/`, `dist/` не коммитить.
 
-## 11. Модель истории и фильтрация
-- src/gui/models/history_model.h/.cpp – QAbstractTableModel
-- src/gui/views/params_panel.h/.cpp – QSortFilterProxyModel поверх HistoryModel
-- Фильтр: по имени/дате/каталогу
-- Сортировка: по дате по умолчанию
-- mapToSource() используется корректно при выборе записей (особенно множественный выбор)
+## 15. Git и релиз
+Ветка Anton. `dist/` не в git, распространяется ZIP в GitHub Releases (v1.0-qt-gui). При требовании хранить пакет в git — упаковать `dist/*` в `imitator_gui_portable.zip` и закоммитить в Anton.
 
-## 12. Self-test GUI
-src/gui/main.cpp: при старте создаёт временный PDF, проверяет наличие %PDF. При успехе приложение запускается (exit 0 в тестовом сценарии не требуется для нормального запуска, но логика проверки реализована).
-
-## 13. Портативная сборка (dist) и deploy
-Таргет deploy в корневом CMakeLists.txt:
-- Копирует imitator_gui.exe, imitator.exe в dist/
-- Запускает windeployqt (копирует Qt DLL, плагины platforms/qwindows.dll,qoffscreen.dll,qminimal.dll, sqldrivers, imageformats, tls и др.)
-- Копирует MinGW runtime: libgcc_s_seh-1.dll, libstdc++-6.dll, libwinpthread-1.dll
-- Копирует USER_GUIDE.md в dist/
-
-Сборка:
-`ash
-cmake --build build --target deploy
-`
-Проверка: запустить dist\imitator_gui.exe с чистым PATH (двойным щелчком) – self-test проходит, приложение работает.
-
-## 14. Паритет с консольной версией
-- Причина прежних расхождений – рабочий каталог (cwd), а не регрессия
-- В оригинальном Aligner.cpp при недоступном ../data/processed/Aligner.dat – ранний return (обнуление начальных углов/ba)
-- При корректном cwd (есть доступ к ../data/processed, типично build-каталог) result.txt/reference.txt/errors.txt побайтово совпадают между оригинальным imitator и Qt-версией и с verified baseline
-- Для одновременного запуска – **разные** рабочие каталоги (иначе выходные файлы в tools/ перезаписываются)
-
-## 15. Правила разработки
-- core/ – только STL/C++17. Без Qt. core_has_no_qt должен проходить
-- Сохранять алгоритмы ESKF и матричные конвенции (row-major + явное число столбцов)
-- Углы: радианы внутри, градусы на выходе
-- Графика GUI – только QPainter
-- Минимальные изменения. Соблюдать существующий стиль кода
-- Комментарии – на русском
-- После правок – прогнать ctest (особенно test_plots, test_pdf_report при правках GUI)
-- Не коммитить без явного запроса пользователя
-- Сборка в Release, без ошибок и предупреждений
-
-## 16. Полезные файлы для навигации
-- docs/qt_integration_proposal.md – детальный план интеграции
-- AGENTS.md – технический контекст по ESKF
-- USER_GUIDE.md – руководство для пользователя
-- src/gui/main.cpp – точка входа + self-test
-- src/gui/views/plots/plot_view.* – графики и кэш
-- src/gui/export/pdf_report.* – экспорт PDF
-- src/gui/views/params_panel.* – история/фильтр
-- src/core/navigation/simulation.* – Qt-free файловый раннер
-- src/core/data_io/data_reader.* – файловые ридеры
-
-## 17. Типичные сценарии отладки
-- Сломался кэш графика: проверить invalidateCache во всех мутаторах, влияющих на данные/диапазоны
-- PDF пустой/неправильный: проверить восстановление canvas (ряды + sync_markers) после renderTo()
-- Фильтр истории работает странно: проверить mapToSource() при множественном выборе
-- Расхождение с консолью: первым делом сверить рабочий каталог запуска
+## 16. Отладка
+`invalidateCache()` при сбое кэша; проверка series/sync_markers в PDF; `mapToSource()` в истории; `cwd` при расхождении с консолью; убрать `#include <Q...>`, если падает `core_has_no_qt`.
