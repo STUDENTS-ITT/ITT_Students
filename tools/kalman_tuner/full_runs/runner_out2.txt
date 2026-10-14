@@ -1,0 +1,6 @@
+[19:20:24] START static300
+[19:31:10] DONE static300 §  10.8 ¬¨­
+[19:31:10] START square650
+[19:57:15] DONE square650 §  26.1 ¬¨­
+
+‚‘ð ƒŽ’Ž‚Ž. ‘¢®¤ª : C:\ITT_Students_Qt_Version\tools\kalman_tuner\full_runs\_summary.txt

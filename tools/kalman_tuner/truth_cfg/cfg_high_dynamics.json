@@ -1,0 +1,76 @@
+{
+  "data_dir": "C:/ITT_Students_Qt_Version/ITT_Students-Katya/dataset_shum/high_dynamics",
+  "build_dir": "C:/ITT_Students_Qt_Version/build/src/console",
+  "target_exe": "imitator.exe",
+  "work_root": "temp_tune_truth_high_dynamics",
+  "params": [
+    {
+      "name": "sigma_g",
+      "sigma_ref": 0.0003394,
+      "u_span": 2.7
+    },
+    {
+      "name": "sigma_a",
+      "sigma_ref": 0.00305,
+      "u_span": 3.0
+    },
+    {
+      "name": "sigma_bg",
+      "sigma_ref": 1.16e-05,
+      "u_span": 2.2
+    },
+    {
+      "name": "sigma_ba",
+      "sigma_ref": 2e-05,
+      "u_span": 2.2
+    },
+    {
+      "name": "sigma_pos",
+      "sigma_ref": 2.644e-08,
+      "u_span": 2.0
+    },
+    {
+      "name": "sigma_h",
+      "sigma_ref": 5.0,
+      "u_span": 1.6
+    },
+    {
+      "name": "sigma_v",
+      "sigma_ref": 0.048,
+      "u_span": 1.5
+    },
+    {
+      "name": "sigma_ang",
+      "sigma_ref": 0.0175,
+      "u_span": 1.6
+    }
+  ],
+  "metric": {
+    "tol_pos": 5.0,
+    "tol_vel": 0.5,
+    "tol_hdg": 1.0,
+    "tie_weight": 0.05,
+    "ref_lambda": 0.005,
+    "tail_q": 99.9,
+    "tail_weight": 0.5
+  },
+  "horizon": {
+    "skip_first_s": 110.0,
+    "train_frac": 0.6
+  },
+  "optim": {
+    "n_global": 64,
+    "n_local": 80,
+    "n_workers": 8,
+    "run_timeout_s": 300,
+    "n_global2": 32,
+    "b5_span": 0.5,
+    "seed": 42,
+    "early_stop_stale": 16,
+    "valid_ovfit_ratio": 2.0,
+    "polish_method": "nm"
+  },
+  "output": {
+    "preset": "C:/ITT_Students_Qt_Version/presets/truth/tuned_high_dynamics.ini"
+  }
+}

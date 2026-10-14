@@ -1,0 +1,127 @@
+======================================================================
+   ПОДБОР КОЭФФИЦИЕНТОВ ФИЛЬТРА КАЛМАНА (v3)
+   Данные: C:/ITT_Students_Qt_Version/ITT_Students-Katya/dataset_shum/square_650
+   exe: C:/ITT_Students_Qt_Version/build/src/console\imitator.exe
+   Метрика: J = P95(pos)/5.0 + P95(vel)/0.5 + P95(hdg)/1.0 + 0.05·Mean + 0.005·u2 + 0.5·P99.9(pos@200Hz)/5.0 [v3]
+   Горизонт: skip=130.0 с, train=60%, workers=8
+   Сетка: ранний стоп после 16 нейтральных точек (A2); полировка: Nelder-Mead; старт у u=0 (B6)
+   Старт: 20:44:14
+======================================================================
+
+=== Этап 1, 65 точек Sobol (ранний стоп после 16 нейтральных) ===
+   [4/65] best_train=0.9458 (упало: 0, 6 с)
+   [8/65] best_train=0.9118 (упало: 0, 11 с)
+   [12/65] best_train=0.8154 (упало: 0, 15 с)
+   [16/65] best_train=0.8154 (упало: 0, 20 с)
+   [20/65] best_train=0.8154 (упало: 0, 24 с)
+   [24/65] best_train=0.8154 (упало: 0, 29 с)
+   [28/65] best_train=0.8154 (упало: 0, 33 с)
+   Early-stop (A2): best_train не улучшался 19 точек подряд — остальные 37 точек сетки пропущены.
+   Завершено за 33 с (28/65 точек, упало 0)
+   Этап 1: оценок 28/65, упало 0, пропущено по раннему стопу 37
+   Этап 1 (сетка) занял 33 с
+
+Топ-5 после этапа 1 (breakdown по компонентам J):
+   #1  J_train=0.8154, J_valid=0.6278  sigma_g = 4.508625e-04 sigma_a = 6.249578e-04 sigma_bg = 1.437964e-05
+   #1: J_train=0.8154, J_valid=0.6278
+      train -> pos  0.415 | vel  0.100 | hdg  0.051 (RAW: pos 2.075 м, vel 0.050 м/с, hdg 0.051 °)
+      valid -> pos  0.227 | vel  0.141 | hdg  0.111 (RAW: pos 1.136 м, vel 0.071 м/с, hdg 0.111 °)
+      (reg 0.0177)
+      tail P99.9@200Hz -> train  0.213 | valid  0.117 (RAW: 2.133 / 1.169 м)
+   #2  J_train=0.8312, J_valid=0.5331  sigma_g = 1.318398e-03 sigma_a = 4.802781e-04 sigma_bg = 3.363895e-06
+   #2: J_train=0.8312, J_valid=0.5331
+      train -> pos  0.415 | vel  0.103 | hdg  0.062 (RAW: pos 2.076 м, vel 0.052 м/с, hdg 0.062 °)
+      valid -> pos  0.215 | vel  0.110 | hdg  0.065 (RAW: pos 1.076 м, vel 0.055 м/с, hdg 0.065 °)
+      (reg 0.0187)
+      tail P99.9@200Hz -> train  0.213 | valid  0.111 (RAW: 2.134 / 1.109 м)
+   #3  J_train=0.8349, J_valid=0.5381  sigma_g = 2.542886e-03 sigma_a = 9.154483e-02 sigma_bg = 7.514241e-06
+   #3: J_train=0.8349, J_valid=0.5381
+      train -> pos  0.418 | vel  0.105 | hdg  0.060 (RAW: pos 2.090 м, vel 0.052 м/с, hdg 0.060 °)
+      valid -> pos  0.197 | vel  0.149 | hdg  0.058 (RAW: pos 0.984 м, vel 0.075 м/с, hdg 0.058 °)
+      (reg 0.0203)
+      tail P99.9@200Hz -> train  0.215 | valid  0.101 (RAW: 2.147 / 1.008 м)
+   #4  J_train=0.8444, J_valid=0.6327  sigma_g = 3.130675e-04 sigma_a = 1.844007e-03 sigma_bg = 4.463421e-05
+   #4: J_train=0.8444, J_valid=0.6327
+      train -> pos  0.415 | vel  0.087 | hdg  0.066 (RAW: pos 2.075 м, vel 0.043 м/с, hdg 0.066 °)
+      valid -> pos  0.227 | vel  0.116 | hdg  0.114 (RAW: pos 1.135 м, vel 0.058 м/с, hdg 0.114 °)
+      (reg 0.0450)
+      tail P99.9@200Hz -> train  0.213 | valid  0.117 (RAW: 2.133 / 1.165 м)
+   #5  J_train=0.8464, J_valid=0.5773  sigma_g = 5.390763e-03 sigma_a = 6.116639e-03 sigma_bg = 1.585934e-05
+   #5: J_train=0.8464, J_valid=0.5773
+      train -> pos  0.415 | vel  0.100 | hdg  0.063 (RAW: pos 2.075 м, vel 0.050 м/с, hdg 0.063 °)
+      valid -> pos  0.226 | vel  0.121 | hdg  0.065 (RAW: pos 1.128 м, vel 0.060 м/с, hdg 0.065 °)
+      (reg 0.0364)
+      tail P99.9@200Hz -> train  0.213 | valid  0.116 (RAW: 2.133 / 1.164 м)
+   Этап 2 (полировки, 3 стартов) занял 11 мин 41 с
+
+=== B5: уточняющая сетка ±0.5 вокруг бассейна, 33 точек Sobol (ранний стоп после 16 нейтральных) ===
+   [4/33] best_train=0.7911 (упало: 0, 6 с)
+   [8/33] best_train=0.7911 (упало: 0, 13 с)
+   [12/33] best_train=0.7911 (упало: 0, 19 с)
+   [16/33] best_train=0.7911 (упало: 0, 26 с)
+   [20/33] best_train=0.7911 (упало: 0, 32 с)
+   Early-stop (A2): best_train не улучшался 19 точек подряд — остальные 13 точек сетки пропущены.
+   Завершено за 32 с (20/33 точек, упало 0)
+B5: топ-3 уточняющей сетки (breakdown по компонентам J):
+   #1: J_train=0.7911, J_valid=0.5310
+      train -> pos  0.415 | vel  0.089 | hdg  0.051 (RAW: pos 2.076 м, vel 0.044 м/с, hdg 0.051 °)
+      valid -> pos  0.209 | vel  0.113 | hdg  0.085 (RAW: pos 1.044 м, vel 0.056 м/с, hdg 0.085 °)
+      (reg 0.0047)
+      tail P99.9@200Hz -> train  0.213 | valid  0.107 (RAW: 2.135 / 1.069 м)
+   #2: J_train=0.7951, J_valid=0.5129
+      train -> pos  0.416 | vel  0.088 | hdg  0.054 (RAW: pos 2.079 м, vel 0.044 м/с, hdg 0.054 °)
+      valid -> pos  0.194 | vel  0.114 | hdg  0.087 (RAW: pos 0.969 м, vel 0.057 м/с, hdg 0.087 °)
+      (reg 0.0053)
+      tail P99.9@200Hz -> train  0.214 | valid  0.100 (RAW: 2.137 / 1.000 м)
+   #3: J_train=0.7964, J_valid=0.5898
+      train -> pos  0.415 | vel  0.089 | hdg  0.053 (RAW: pos 2.075 м, vel 0.045 м/с, hdg 0.053 °)
+      valid -> pos  0.221 | vel  0.112 | hdg  0.123 (RAW: pos 1.104 м, vel 0.056 м/с, hdg 0.123 °)
+      (reg 0.0069)
+      tail P99.9@200Hz -> train  0.213 | valid  0.114 (RAW: 2.133 / 1.137 м)
+   B5 (уточняющая сетка + полировки) занял 14 мин 41 с
+
+=== E1b: центроид плато (скан ±0.3 шагом 0.1 по осям u, 48 соседей, полоса J_train <= best + 0.05) ===
+   Соседей в плато: 48/48 (упало 0, J_min=0.7902, 40 с)
+   Центроид: J_train=0.7731, J_valid=0.5385
+   -> финальная точка = центроид плато (робастный итог, J_train=0.7731)
+   E1b (центроид плато) занял 46 с
+
+=== E5: чувствительность J к параметрам (шаг 0.15 по u) ===
+   база (лучшая точка): J_train=0.7908, J_valid=0.5005
+   sigma_g   внутрь(к базе)= наружу= J_train=0.7949 J_valid=0.4904 | J_train=0.7965 J_valid=0.5222 |
+   sigma_a   внутрь(к базе)= наружу= J_train=0.7936 J_valid=0.4982 | J_train=0.7904 J_valid=0.5014 |
+   sigma_bg  внутрь(к базе)= наружу= J_train=0.7908 J_valid=0.5029 | J_train=0.7919 J_valid=0.4984 |
+   sigma_ba  внутрь(к базе)= наружу= J_train=0.7904 J_valid=0.5001 | J_train=0.7914 J_valid=0.5011 |
+   sigma_pos внутрь(к базе)= наружу= J_train=0.7910 J_valid=0.5173 | J_train=0.7912 J_valid=0.4862 |
+   sigma_h   внутрь(к базе)= наружу= J_train=0.7909 J_valid=0.5006 | J_train=0.7909 J_valid=0.5006 |
+   sigma_v   внутрь(к базе)= наружу= J_train=0.8040 J_valid=0.5050 | J_train=0.7979 J_valid=0.5109 |
+   sigma_ang внутрь(к базе)= наружу= J_train=0.7933 J_valid=0.5145 | J_train=0.7924 J_valid=0.4972 |
+   E5 (чувствительность) занял 21 с
+
+======================================================================
+   РЕЗУЛЬТАТЫ
+======================================================================
+Этап 1: J_train=0.8154 (C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\global_008)
+Финальная точка: J_train=0.7731, J_valid=0.5385
+   Финальная точка: J_train=0.7731, J_valid=0.5385
+      train -> pos  0.380 | vel  0.103 | hdg  0.048 (RAW: pos 1.898 м, vel 0.052 м/с, hdg 0.048 °)
+      valid -> pos  0.215 | vel  0.112 | hdg  0.076 (RAW: pos 1.076 м, vel 0.056 м/с, hdg 0.076 °)
+      (reg 0.0047)
+      tail P99.9@200Hz -> train  0.224 | valid  0.119 (RAW: 2.245 / 1.191 м)
+Найденные параметры:
+   sigma_g    = 1.082049e-03
+   sigma_a    = 7.009435e-03
+   sigma_bg   = 1.125273e-05
+   sigma_ba   = 9.281305e-06
+   sigma_pos  = 5.038948e-08
+   sigma_h    = 4.949589e+00
+   sigma_v    = 1.251726e-02
+   sigma_ang  = 2.648898e-02
+   Сохранено: C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\best_params.txt
+   Пресет сохранён: C:\ITT_Students_Qt_Version\presets\truth_13b\tuned_square650.ini
+   График «Калман vs эталон»: C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\best_comparison.png
+   График ошибок: C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\best_errors.png
+   График ошибок: C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\best_diffs.png
+   График ошибок: C:\ITT_Students_Qt_Version\tools\kalman_tuner\temp_tune_13b_square650\best_kf_errors.png
+
+   Готово за 28 мин 07 с (финиш 21:12:21)

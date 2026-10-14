@@ -1,0 +1,23 @@
+=== Этап 13A: подбор по наземной истине (truth.txt) — итог ===
+
+Прогон 2026-10-11, 8 наборов (square_noisefree исключён — повреждён truth.txt).
+Метрика подбора: tune_kalman.py --ref-truth (этап 13A). Пресеты:
+presets/truth/tuned_<набор>.ini. Конфиги: truth_cfg/cfg_<набор>.json.
+Логи: full_truth_<набор>.log. P95 — валид-окно против truth.txt (validate_truth.py).
+
+ Набор                 P95_truth(старый)  P95_truth(новый)  улучш.  J_valid(нов)
+ static300                  1.093             0.129          8.5x   0.1135
+ static_lownoise_align      0.098             0.076          1.3x   0.0451
+ square650                  1.619             1.057          1.5x   0.5443
+ square_harsh               5.937             3.533          1.7x   2.3223
+ straight_10ms              0.337             0.290          1.2x   0.3755
+ figure8_8ms                0.574             0.300          1.9x   0.3774
+ spiral_climb               1.152             0.216          5.3x   0.3747
+ high_dynamics              3.954             1.074          3.7x   0.7493
+
+Для сравнения, P95 против БОРТОВОГО reference у новых пресетов вырос
+(2-13 м) — подбор честно переориентирован на истину, а не на эталон СНС.
+
+Артефакты: _truth_vs_ref_13A.txt (старые пресеты),
+_truth_vs_ref_13A_newpresets.txt (новые), presets/truth/*.ini,
+temp_tune_truth_<набор>/ (best_params.txt, *.png).

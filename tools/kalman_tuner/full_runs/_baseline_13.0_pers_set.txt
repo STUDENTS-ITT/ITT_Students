@@ -1,0 +1,10 @@
+set                         n_ref    p95_pos    p99.9@200Hz    max@200
+figure8_8ms                  2197      3.476          4.742      6.164
+high_dynamics                1888      5.368          7.934     10.141
+spiral_climb                 2693      3.213          4.852      9.391
+square650                    5297      3.200          4.514      6.216
+square_harsh                 5303     10.449         14.839     22.610
+square_noisefree             5299      0.014          0.016      0.046
+static300                    1699      3.170          4.838     19.408
+static_lownoise_align         500      1.891          2.578      2.937
+straight_10ms                2697      3.757          4.653      5.544

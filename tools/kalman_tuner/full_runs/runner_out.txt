@@ -1,0 +1,20 @@
+[16:59:08] START static_300
+[17:09:08] DONE static_300 за 10 мин
+[17:09:08] START static_lownoise_align
+[17:22:43] DONE static_lownoise_align за 13.6 мин
+[17:22:44] START square_650
+[17:32:50] DONE square_650 за 10.1 мин
+[17:32:50] START square_noisefree
+[17:58:21] DONE square_noisefree за 25.5 мин
+[17:58:21] START square_harsh
+[18:26:56] DONE square_harsh за 28.6 мин
+[18:26:56] START straight_10ms
+[18:39:35] DONE straight_10ms за 12.6 мин
+[18:39:35] START figure8_8ms
+[18:51:40] DONE figure8_8ms за 12.1 мин
+[18:51:40] START spiral_climb
+[19:06:49] DONE spiral_climb за 15.2 мин
+[19:06:49] START high_dynamics
+[19:16:40] DONE high_dynamics за 9.8 мин
+
+ВСЁ ГОТОВО. Сводка: C:\ITT_Students_Qt_Version\tools\kalman_tuner\full_runs\_summary.txt

@@ -1,0 +1,10 @@
+set                             P95_ref      P95_truth    Jref_tr    Jtru_tr    ratio
+figure8_8ms                       3.637          0.300      1.844      0.382     0.08
+high_dynamics                     6.702          1.074      3.787      0.748     0.16
+spiral_climb                      3.737          0.216      1.789      0.308     0.06
+square650                         3.773          1.057      1.885      0.782     0.28
+square_harsh                     12.755          3.533      9.478      2.253     0.28
+square_noisefree                  0.002            nan      0.002 1000000000.000      nan
+static300                         3.499          0.129      1.832      0.128     0.04
+static_lownoise_align             1.953          0.076      0.826      0.036     0.04
+straight_10ms                     3.776          0.290      1.841      0.326     0.08

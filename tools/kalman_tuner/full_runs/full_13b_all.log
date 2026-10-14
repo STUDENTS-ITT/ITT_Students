@@ -1,0 +1,8 @@
+[20:19:09] END 13b static_lownoise_align exit=3221225786 1.3min
+[20:19:11] END 13b square650 exit=3221225786 0.0min
+[20:19:13] END 13b square_harsh exit=3221225786 0.0min
+[20:19:14] END 13b straight_10ms exit=3221225786 0.0min
+[20:19:15] END 13b figure8_8ms exit=3221225786 0.0min
+[20:19:16] END 13b spiral_climb exit=3221225786 0.0min
+[20:19:17] END 13b high_dynamics exit=3221225786 0.0min
+DONE
