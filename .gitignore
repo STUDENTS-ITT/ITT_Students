@@ -8,9 +8,34 @@
 # Данные
 INS_Data/
 
+# Каталоги сборки
+/build/
+/build_debug/
+/out/
+/cmake-build-*/
+
+# Крупные входные данные и внешний референсный датасет
+# (тесты паритета/формата пропускаются, если данных нет на диске)
+/data/
+/run_hk/
+/ITT_Students-Katya/
+
+# Архивы и портативный пакет (получаются на этапе деплоя)
+*.zip
+/dist/
+
+# Сформированные отчёты (docx)
+/Report_*.docx
+
 # IDE
 .idea/
+.vscode/
 
 # Python
 __pycache__/
 *.pyc
+
+# Временные каталоги подбора КФ (tools/kalman_tuner)
+/tools/kalman_tuner/temp_tune*/
+/tools/kalman_tuner/dbg_*/
+/tools/kalman_tuner/*.pyc
