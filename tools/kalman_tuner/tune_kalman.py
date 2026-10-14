@@ -457,11 +457,15 @@ def run_eval(u_vec, work_dir):
     if os.environ.get("TUNE_REF_TRUTH") == "1":
         # Наземная истина синтетических наборов. Историческое имя —
         # reference_truth.txt; штатно в наборе лежит truth.txt (этап 13A).
+        reference_path = None
         for cand in ("reference_truth.txt", "truth.txt"):
             truth_ref = os.path.join(DATA_DIR, cand)
             if os.path.exists(truth_ref):
                 reference_path = truth_ref
                 break
+        if reference_path is None:
+            # Истину просили явно, но файла нет — не подменяем её молча СНС.
+            return BAD_ERROR, BAD_ERROR, None, "нет truth.txt в наборе"
     if not os.path.exists(result_path) or not os.path.exists(reference_path):
         return BAD_ERROR, BAD_ERROR, None, "нет result/reference.txt"
 
@@ -968,6 +972,9 @@ def save_best_txt(best, results_top, sens=None):
     lines = []
     lines.append("=== Подобранные параметры фильтра Калмана ===")
     lines.append(f"данные            : {DATA_DIR}")
+    ref_truth = os.environ.get("TUNE_REF_TRUTH") == "1"
+    lines.append("эталон ошибки     : " + ("truth.txt (наземная истина)" if ref_truth
+                                          else "reference.txt (эталон СНС)"))
     lines.append(f"J_train           : {best.get('J', 0.0):.4f} "
                  f"(этап 1: {results_top[0][0]:.4f})")
     lines.append(f"J_valid           : {best.get('valid', 0.0):.4f}")
@@ -1231,6 +1238,9 @@ def main():
           f" + {TIE_WEIGHT}·Mean + {REG_LAMBDA}·u2"
           f" + {TAIL_WEIGHT}·P{TAIL_Q:g}(pos@200Hz)/{TOL_POS} [v3]")
     print(f"   Горизонт: skip={SKIP_FIRST_S} с, train={TRAIN_FRAC:.0%}, workers={N_WORKERS}")
+    print("   Эталон ошибки: " + ("truth.txt (наземная истина)"
+                                  if os.environ.get("TUNE_REF_TRUTH") == "1"
+                                  else "reference.txt (эталон СНС)"))
     print(f"   Сетка: ранний стоп после {EARLY_STOP_STALE} нейтральных точек (A2); "
           f"полировка: {'basinhopping (B8)' if POLISH_METHOD == 'bh' else 'Nelder-Mead'}; "
           f"старт у u=0 (B6)")

@@ -25,13 +25,19 @@ const char *kDarkTheme = "view/dark_theme";
 const char *kExportW = "export/width";
 const char *kExportH = "export/height";
 
-// Каталог рядом с exe (…/build) и один уровень выше (корень проекта).
+// Корень проекта: ближайший каталог вверх по дереву, в котором есть data/raw.
+// Покрывает запуск из корня проекта, build/, build/src/gui/ и dist/ (портативно).
 QString appRootDir()
 {
-    QDir dir(QCoreApplication::applicationDirPath());
-    if (dir.exists("data/raw")) return dir.absolutePath();
-    if (dir.exists("../data/raw")) return dir.absoluteFilePath("../data");
-    return dir.absolutePath();
+    const QDir app_dir(QCoreApplication::applicationDirPath());
+    QDir probe(app_dir);
+    for (int depth = 0; depth < 8; ++depth)
+    {
+        if (probe.exists(QStringLiteral("data/raw"))) return probe.absolutePath();
+        if (!probe.cdUp()) break;
+    }
+    // Корень не найден (портативная сборка без проекта) — считаем корнем exe.
+    return app_dir.absolutePath();
 }
 } // namespace
 
@@ -57,6 +63,12 @@ QString AppSettings::defaultPresetsDir()
 {
     QDir root(appRootDir());
     return root.filePath("presets");
+}
+
+QString AppSettings::defaultReportsDir()
+{
+    QDir root(appRootDir());
+    return root.filePath("reports");
 }
 
 QString AppSettings::defaultDatabaseFile()

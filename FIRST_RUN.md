@@ -102,6 +102,8 @@ New-Item -ItemType Directory -Force out_first_run | Out-Null
 | `--autostart` | сразу запустить расчёт при открытии окна |
 | `--self-test` | без окна: расчёт + проверки и выход (для CI) |
 | `--export-matrices <dir>` | без окна: выгрузить матрицы Q/R/P0/H (csv/md/json) и выйти |
+| `--tuning-report <config.json>` | без окна: собрать PDF-отчёт о подборе по конфигу тюнера (`tuner_config*.json`) и выйти |
+| `--tuning-report-out <file.pdf>` | куда сохранить отчёт о подборе (по умолчанию — `reports/<набор>/tuning_<набор>.pdf`) |
 | `-h, --help`, `-v, --version` | справка и версия |
 
 ---

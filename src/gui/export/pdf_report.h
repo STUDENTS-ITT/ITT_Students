@@ -11,6 +11,7 @@
 
 #include "core_bridge/run_store.h"
 #include "core_bridge/telemetry_buffer.h"
+#include "settings/dataset_truth.h"
 #include "views/plots/plot_view.h"
 
 namespace gui
@@ -36,6 +37,15 @@ public:
     {
         QString title;
         QString data_dir;
+        // Шапка: имя набора данных и файл настроек/пресета прогона.
+        QString dataset;
+        QString preset;
+        // Снимок параметров фильтра (текст INI, dumpFilterSettings): печатается
+        // отдельным разделом, чтобы в отчёте были видны применённые значения.
+        QString settings_ini;
+        // Наземная истина набора (truth.txt), если корректна: по ней в отчёте
+        // считается ошибка прогона. Пусто — сравнение с эталоном СНС.
+        QVector<TruthSample> truth;
         bool include_plots = true;
         // Ограничение на число строк в таблице NIS/NEES: полный набор за
         // 600 с — это тысячи строк, в отчёте оставляем выборку.

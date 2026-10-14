@@ -133,7 +133,7 @@ cmake --build build
 set QT_QPA_PLATFORM=offscreen
 ctest --test-dir build --output-on-failure
 ```
-Тесты включают `core_has_no_qt`, `test_matrix_ops`, `test_transformations`, `test_statistics`, `test_ins_filter`, `test_data_io`, `test_data_source`, `test_settings`, `test_run_store`, `test_simulation`, `test_plots`, `test_pdf_report`, `test_matrices_exporter`, `test_dataset_generator`, `test_parity`, а также GUI-smoke с генерацией набора (`gui_smoke_generate` — CTest fixture, затем `gui_smoke`). Всего 17 тестов.
+Тесты включают `core_has_no_qt`, `test_matrix_ops`, `test_transformations`, `test_statistics`, `test_ins_filter`, `test_data_io`, `test_data_source`, `test_settings`, `test_run_store`, `test_simulation`, `test_plots`, `test_pdf_report`, `test_tuning_report`, `test_matrices_exporter`, `test_app_settings`, `test_dataset_truth`, `test_dataset_generator`, `test_parity`, а также GUI-smoke с генерацией набора (`gui_smoke_generate` — CTest fixture, затем `gui_smoke`). Всего 20 тестов.
 
 ## 10. PlotView
 Ключ кэша — версия, размер, диапазоны X/Y. API: `setCacheEnabled`/`isCacheEnabled`/`cacheHits`/`cacheMisses`/`invalidateCache`/`isCacheValid`/`rebuildCache`. При disabled — прямая отрисовка, счётчики не растут. Курсор поверх кэша. Инвалидация обязательна при изменении отрисовки.

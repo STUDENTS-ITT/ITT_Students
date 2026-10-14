@@ -6,6 +6,7 @@
 
 #include "views/tuning_panel.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
@@ -14,8 +15,11 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -23,6 +27,7 @@
 #include <QVBoxLayout>
 
 #include "settings/app_settings.h"
+#include "settings/dataset_truth.h"
 
 namespace gui
 {
@@ -33,6 +38,16 @@ namespace
 const char *kTunerScript = "tune_kalman.py";
 // Максимум строк консоли вкладки (вывод подбора занимает много места).
 const int kMaxConsoleLines = 20000;
+
+// Каталог данных из конфига подбора (для подписи в списке), "" — если нет.
+QString dataDirFromConfig(const QString &config_path)
+{
+    QFile f(config_path);
+    if (!f.open(QIODevice::ReadOnly)) return QString();
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject()) return QString();
+    return doc.object().value(QStringLiteral("data_dir")).toString();
+}
 } // namespace
 
 // ------------------------------------------------------------------------
@@ -90,6 +105,30 @@ TuningPanel::TuningPanel(QWidget *parent) : QWidget(parent)
     run_row->addStretch(1);
     root->addLayout(run_row);
 
+    // --- Конфиг подбора (по одному конфигу на набор данных) ---
+    auto *config_row = new QHBoxLayout;
+    config_row->addWidget(new QLabel(tr("Конфиг")));
+    config_combo_ = new QComboBox;
+    config_combo_->setToolTip(
+        tr("Набор параметров подбора: tuner_config*.json рядом со скриптом "
+           "(у наборов dataset_shum свой конфиг, например tuner_config.static300.json)"));
+    config_row->addWidget(config_combo_, 1);
+    root->addLayout(config_row);
+
+    // --- Сравнение с наземной истиной (truth.txt) ---
+    // Тюнер умеет считать ошибку по истинной траектории набора, но только
+    // если файл есть и не повреждён; иначе остаётся эталон СНС.
+    auto *truth_row = new QHBoxLayout;
+    truth_check_ = new QCheckBox(tr("Сравнивать с истиной (truth.txt)"));
+    truth_check_->setToolTip(
+        tr("Считать ошибку по истинной траектории набора (truth.txt), а не по "
+           "эталону СНС (reference.txt). Доступно только для синтетических "
+           "наборов, где truth.txt корректен."));
+    truth_row->addWidget(truth_check_);
+    truth_status_ = new QLabel;
+    truth_row->addWidget(truth_status_, 1);
+    root->addLayout(truth_row);
+
     // --- Кнопки управления ---
     auto *buttons_row = new QHBoxLayout;
     start_button_ = new QPushButton(tr("Запустить подбор"));
@@ -97,16 +136,29 @@ TuningPanel::TuningPanel(QWidget *parent) : QWidget(parent)
     stop_button_->setEnabled(false);
     apply_button_ = new QPushButton(tr("Применить пресет…"));
     apply_button_->setToolTip(tr("Загрузить подобранный пресет в параметры фильтра"));
+    report_button_ = new QPushButton(tr("Отчёт о подборе…"));
+    report_button_->setToolTip(
+        tr("Собрать PDF-отчёт о подборе по best_params.txt и eval.json выбранного конфига"));
     status_label_ = new QLabel;
     buttons_row->addWidget(start_button_);
     buttons_row->addWidget(stop_button_);
     buttons_row->addWidget(apply_button_);
+    buttons_row->addWidget(report_button_);
     buttons_row->addWidget(status_label_, 1);
     root->addLayout(buttons_row);
 
     connect(start_button_, &QPushButton::clicked, this, &TuningPanel::startTuning);
     connect(stop_button_, &QPushButton::clicked, this, &TuningPanel::stopTuning);
     connect(apply_button_, &QPushButton::clicked, this, &TuningPanel::onApplyPreset);
+    connect(report_button_, &QPushButton::clicked, this, &TuningPanel::onBuildReport);
+    connect(config_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &TuningPanel::onConfigChanged);
+    // Проверка truth.txt при смене каталога данных вручную.
+    connect(data_dir_edit_, &QLineEdit::editingFinished, this,
+            &TuningPanel::updateTruthStatus);
+    // Пользователь сам снял/поставил галочку: дальше «по умолчанию включено»
+    // не навязываем до смены набора.
+    connect(truth_check_, &QCheckBox::clicked, this, [this]() { truth_touched_ = true; });
 
     // --- Консоль вывода тюнера ---
     log_view_ = new QPlainTextEdit;
@@ -120,16 +172,18 @@ TuningPanel::TuningPanel(QWidget *parent) : QWidget(parent)
     auto *hint = new QLabel(
         tr("Подбор выполняет tools/kalman_tuner/tune_kalman.py в фоне и занимает время "
            "(полный режим — десятки минут; быстрый/глобальная сетка — заметно меньше). "
-           "Скрипт и параметры поиска берутся из tuner_config.json рядом со скриптом, "
-           "готовый пресет записывается в presets/tuned.ini."));
+           "Параметры поиска берутся из выбранного конфига tuner_config*.json, "
+           "готовый пресет записывается в presets/."));
     hint->setWordWrap(true);
     root->addWidget(hint);
 
     // Каталог данных по умолчанию — как у прогона.
     setDataDir(AppSettings::defaultDataDir());
+    rebuildConfigCombo();
 
     // Если пресет уже был подобран ранее — кнопка применения доступна сразу.
     apply_button_->setEnabled(!presetPath().isEmpty());
+    report_button_->setEnabled(!currentConfigPath().isEmpty());
 }
 
 TuningPanel::~TuningPanel()
@@ -149,6 +203,9 @@ bool TuningPanel::isRunning() const
 void TuningPanel::setDataDir(const QString &dir)
 {
     data_dir_edit_->setText(dir);
+    // Новый набор: снова применяем «по умолчанию — истина».
+    truth_touched_ = false;
+    updateTruthStatus();
 }
 
 QString TuningPanel::scriptPath() const
@@ -156,6 +213,98 @@ QString TuningPanel::scriptPath() const
     const QString dir = tunerDir();
     if (dir.isEmpty()) return QString();
     return QDir(dir).filePath(QLatin1String(kTunerScript));
+}
+
+QString TuningPanel::currentConfigPath() const
+{
+    if (config_combo_ == nullptr || config_combo_->currentIndex() < 0) return QString();
+    return config_combo_->currentData().toString();
+}
+
+// Заполнить список конфигов подбора (tuner_config*.json рядом со скриптом).
+void TuningPanel::rebuildConfigCombo()
+{
+    if (config_combo_ == nullptr) return;
+    const QString previous = currentConfigPath();
+
+    config_combo_->blockSignals(true);
+    config_combo_->clear();
+
+    const QString dir = tunerDir();
+    if (!dir.isEmpty())
+    {
+        const QDir d(dir);
+        const QStringList files =
+            d.entryList({QStringLiteral("tuner_config*.json")}, QDir::Files, QDir::Name);
+        for (const QString &name : files)
+        {
+            if (name.contains(QLatin1String("smoke"), Qt::CaseInsensitive)) continue;
+            const QString path = d.filePath(name);
+            // Подписью показываем набор данных из конфига, если он читается.
+            QString label = name;
+            const QString data_dir = dataDirFromConfig(path);
+            if (!data_dir.isEmpty())
+                label = QStringLiteral("%1  ·  %2").arg(QDir(data_dir).dirName(), name);
+            config_combo_->addItem(label, path);
+        }
+    }
+
+    // Выбор по умолчанию — прежний `tuner_config.json`, иначе первый в списке.
+    int idx = -1;
+    if (!previous.isEmpty()) idx = config_combo_->findData(previous);
+    if (idx < 0 && !dir.isEmpty())
+        idx = config_combo_->findData(QDir(dir).filePath(QStringLiteral("tuner_config.json")));
+    if (idx < 0 && config_combo_->count() > 0) idx = 0;
+    if (idx >= 0) config_combo_->setCurrentIndex(idx);
+    config_combo_->blockSignals(false);
+
+    // Подтянуть каталог данных и доступность кнопки под выбранный конфиг.
+    onConfigChanged();
+}
+
+void TuningPanel::onConfigChanged()
+{
+    const QString path = currentConfigPath();
+    if (report_button_ != nullptr)
+        report_button_->setEnabled(!path.isEmpty());
+
+    // Каталог данных из конфига подставляем в поле — у наборов dataset_shum
+    // он совпадает с конфигом, и подбор идёт по тому же набору.
+    const QString data_dir = dataDirFromConfig(path);
+    if (!data_dir.isEmpty()) data_dir_edit_->setText(data_dir);
+
+    // Смена набора — снова применяем «по умолчанию — истина».
+    truth_touched_ = false;
+    updateTruthStatus();
+}
+
+// Проверить truth.txt выбранного каталога: статус показываем рядом, а чекбокс
+// «Сравнивать с истиной» включаем автоматически (сравнение по умолчанию — с
+// истиной), но только пока пользователь не трогал его сам.
+void TuningPanel::updateTruthStatus()
+{
+    if (truth_check_ == nullptr || truth_status_ == nullptr) return;
+
+    const TruthCheck check = checkDatasetTruth(data_dir_edit_->text().trimmed());
+    truth_status_->setText(truthStatusText(check));
+
+    const bool ok = (check.state == TruthState::Ok);
+    truth_check_->setEnabled(ok);
+    if (!ok)
+        truth_check_->setChecked(false);
+    else if (!truth_touched_)
+        truth_check_->setChecked(true);
+}
+
+void TuningPanel::onBuildReport()
+{
+    const QString config = currentConfigPath();
+    if (config.isEmpty())
+    {
+        appendLog(tr("Отчёт: не выбран конфиг подбора."));
+        return;
+    }
+    Q_EMIT tuningReportRequested(config);
 }
 
 void TuningPanel::startTuning()
@@ -179,16 +328,45 @@ void TuningPanel::startTuning()
     }
 
     // Режим подбора: как в main() тюнера, только --data-dir и флаги задаём
-    // из GUI; остальное (сетки, метрика, пресет) — из tuner_config.json.
+    // из GUI; остальное (сетки, метрика, пресет) — из выбранного конфига.
+    const QString config = currentConfigPath();
+    if (config.isEmpty())
+    {
+        appendLog(tr("Ошибка: не найден конфиг подбора (tuner_config*.json) рядом со скриптом."));
+        Q_EMIT logMessage(tr("Подбор: не найден конфиг подбора"), 2);
+        return;
+    }
+
     QStringList args;
     args << QLatin1String("-u") << script
-         << QString("--config=%1").arg(QDir(tunerDir()).filePath("tuner_config.json"))
+         << QString("--config=%1").arg(QDir::toNativeSeparators(config))
          << QString("--data-dir=%1").arg(QDir::toNativeSeparators(data_dir));
     switch (mode_combo_->currentIndex())
     {
     case 1: args << QLatin1String("--quick"); break;
     case 2: args << QLatin1String("--global-only"); break;
     default: break;
+    }
+
+    // Сравнение с наземной истиной: добавляем --ref-truth только если
+    // truth.txt на месте и не повреждён (иначе тюнер молча вернулся бы к СНС).
+    if (truth_check_ != nullptr && truth_check_->isChecked())
+    {
+        const TruthCheck check = checkDatasetTruth(data_dir);
+        if (check.state == TruthState::Ok)
+        {
+            args << QLatin1String("--ref-truth");
+        }
+        else
+        {
+            QMessageBox::warning(
+                this, tr("Подбор"),
+                tr("В наборе нет корректного truth.txt (%1).\n"
+                   "Подбор пойдёт по эталону СНС (reference.txt).")
+                    .arg(check.detail));
+            truth_check_->setChecked(false);
+            updateTruthStatus();
+        }
     }
 
     process_.reset(new QProcess(this));
@@ -329,6 +507,13 @@ void TuningPanel::setRunning(bool running)
     data_dir_edit_->setEnabled(!running);
     python_edit_->setEnabled(!running);
     mode_combo_->setEnabled(!running);
+    config_combo_->setEnabled(!running);
+    report_button_->setEnabled(!running && !currentConfigPath().isEmpty());
+    if (truth_check_ != nullptr)
+    {
+        if (running) truth_check_->setEnabled(false);
+        else updateTruthStatus();
+    }
     if (!running) apply_button_->setEnabled(!presetPath().isEmpty());
 }
 

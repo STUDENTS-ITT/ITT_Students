@@ -106,6 +106,19 @@ public:
     bool isAutoX() const { return auto_x_; }
     bool isAutoY() const { return auto_y_; }
 
+    // Снимок масштаба: используется сборщиком PDF-отчёта, чтобы на время
+    // отрисовки блока подогнать диапазоны под его ряды и вернуть прежние.
+    struct RangeState
+    {
+        double xmin = 0, xmax = 1, ymin = 0, ymax = 1;
+        bool auto_x = true, auto_y = true;
+    };
+    RangeState rangeState() const;
+    void setRangeState(const RangeState &state);
+
+    // Пересчитать диапазоны по текущим рядам (как авто-масштаб).
+    void fitRangesToSeries();
+
     // Точка под курсором (в пикселях виджета) — для показа подсказки.
     PlotCursor cursorAt(const QPoint &pos) const;
 

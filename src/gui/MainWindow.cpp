@@ -43,12 +43,14 @@
 #include "core/data_io/dataset_generator.h"
 #include "core/navigation/simulation.h"
 #include "export/pdf_report.h"
+#include "export/tuning_report.h"
 #include "export/plot_exporter.h"
 #include "export/animation_exporter.h"
 #include "export/matrices_exporter.h"
 #include "models/history_model.h"
 #include "models/nav_table_model.h"
 #include "models/params_table_model.h"
+#include "settings/dataset_truth.h"
 #include "views/control_panel.h"
 #include "views/data_panel.h"
 #include "views/log_panel.h"
@@ -507,6 +509,13 @@ void MainWindow::buildPlots()
     plot_consistency_->setAxisLabels(tr("Время, с"), tr("статистика"));
     plot_consistency_->setMarginLeft(78);
     plot_consistency_->setLegendVisible(true);
+
+    // Холст отчёта: виджет вне вкладок, нужен только для отрисовки блоков
+    // графиков в PDF. Родитель — окно, чтобы он жил и удалялся вместе с ним.
+    // В layout он не входит, поэтому его обязательно прячем: иначе пустой
+    // график (сетка 0…1) рисуется поверх окна в левом верхнем углу.
+    report_canvas_ = new TimeSeriesPlot(this);
+    report_canvas_->hide();
 }
 
 void MainWindow::connectSignals()
@@ -533,6 +542,8 @@ void MainWindow::connectSignals()
     connect(tuning_.data(), &TuningPanel::applyPresetRequested, this,
             &MainWindow::onApplyTuningPreset);
     connect(tuning_.data(), &TuningPanel::tuningFinished, this, &MainWindow::onTuningFinished);
+    connect(tuning_.data(), &TuningPanel::tuningReportRequested, this,
+            &MainWindow::onTuningReport);
 
     connect(plot_tabs_, &QTabWidget::currentChanged, this, &MainWindow::onSelectPlot);
 }
@@ -1554,6 +1565,37 @@ void MainWindow::onTuningFinished(bool ok)
                              ok ? 10000 : 0);
 }
 
+// «Отчёт о подборе»: приложение само собирает PDF из артефактов тюнера
+// (best_params.txt, eval.json) по выбранному конфигу.
+void MainWindow::onTuningReport(const QString &config_path)
+{
+    // Подпапка и имя файла — из набора (data_dir) в конфиге:
+    // reports/<набор>/tuning_<набор>.pdf.
+    QString dataset = TuningReport::datasetFor(config_path);
+    if (dataset.isEmpty())
+    {
+        dataset = QFileInfo(config_path).completeBaseName();
+        dataset.remove(QRegularExpression(QStringLiteral("^tuner_config\\.?")));
+    }
+    if (dataset.isEmpty()) dataset = QStringLiteral("dataset");
+    const QString suggested =
+        QDir(QDir(AppSettings::defaultReportsDir()).filePath(dataset))
+            .filePath(QStringLiteral("tuning_%1.pdf").arg(dataset));
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Отчёт о подборе"), suggested, tr("PDF (*.pdf)"));
+    if (path.isEmpty()) return;
+
+    QString error;
+    if (!TuningReport::build(config_path, path, &error))
+    {
+        QMessageBox::warning(this, tr("Отчёт о подборе"), error);
+        return;
+    }
+    log_->append(tr("Отчёт о подборе сохранён: %1").arg(path));
+    statusBar()->showMessage(tr("Отчёт о подборе сохранён"), 8000);
+}
+
 // ------------------------------------------------------------ Экспорт
 
 void MainWindow::onExportPlot()
@@ -1633,10 +1675,29 @@ bool MainWindow::exportReportTo(const QString &path, QString *error)
                         ? tr("Отчёт по прогону (сравнение с прогоном %1)").arg(compare_run_id_)
                         : tr("Отчёт по прогону");
 
-    // «Холст» для блоков: текущий график вкладки. Его ряды на время сборки
-    // отчёта подменяются содержимым блоков и возвращаются обратно.
-    PlotView *canvas = currentPlot();
-    if (canvas == nullptr) canvas = plot_trajectory_;
+    // Имя набора — последний компонент каталога данных (как в matrices_<набор>).
+    if (!settings_.data_dir.isEmpty())
+        options.dataset = QDir(settings_.data_dir).dirName();
+    options.preset = settings_.settings_file;
+
+    // Наземная истина набора: если truth.txt корректен, ошибки прогона
+    // считаются по нему (как в отчёте о подборе), иначе — по эталону СНС.
+    loadDatasetTruth(settings_.data_dir, &options.truth);
+
+    // Снимок параметров: у сохранённого прогона берём их из истории, иначе —
+    // текущие значения таблицы «Параметры».
+    QString filter_ini;
+    if (current_run_id_ > 0 && store_open_)
+        filter_ini = store_.runSettings(current_run_id_);
+    if (filter_ini.isEmpty())
+        filter_ini = QString::fromStdString(nav::dumpFilterSettings(params_->currentSettings()));
+    options.settings_ini = filter_ini;
+
+    // «Холст» для блоков — отдельный график вне вкладок: так в отчёт попадают
+    // сами ряды блоков, а не то, что открыто на экране (активная вкладка
+    // «Траектория» рисовала бы вместо временных рядов траекторию).
+    PlotView *canvas = report_canvas_;
+    if (canvas == nullptr) canvas = plot_errors_;
 
     return PdfReport::build(canvas, series_, buildReportBlocks(), options, path, error);
 }
@@ -1652,9 +1713,16 @@ void MainWindow::onExportReport()
         return;
     }
 
+    // Отчёты складываем в reports/<набор>/: run_<набор>.pdf.
+    QString dataset = settings_.data_dir.isEmpty()
+                          ? QStringLiteral("dataset")
+                          : QDir(settings_.data_dir).dirName();
+    const QString suggested =
+        QDir(QDir(AppSettings::defaultReportsDir()).filePath(dataset))
+            .filePath(QStringLiteral("run_%1.pdf").arg(dataset));
+
     const QString path = QFileDialog::getSaveFileName(
-        this, tr("Сохранить отчёт"), settings_.output_dir + "/report.pdf",
-        tr("PDF (*.pdf)"));
+        this, tr("Сохранить отчёт"), suggested, tr("PDF (*.pdf)"));
     if (path.isEmpty()) return;
 
     QString error;

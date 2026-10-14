@@ -18,6 +18,7 @@
 
 #include "MainWindow.h"
 #include "core/data_io/dataset_generator.h"
+#include "export/tuning_report.h"
 #include "settings/app_settings.h"
 
 int main(int argc, char *argv[])
@@ -41,10 +42,28 @@ int main(int argc, char *argv[])
         {
             qputenv("QT_QPA_PLATFORM", "offscreen");
         }
+        else if (qstrncmp(argv[i], "--tuning-report", 15) == 0)
+        {
+            qputenv("QT_QPA_PLATFORM", "offscreen");
+        }
         else if (qstrncmp(argv[i], "--self-test-timeout=", 20) == 0)
         {
             self_test_timeout_s = QString::fromLatin1(argv[i] + 20).toInt();
         }
+    }
+
+    // У offscreen-платформы (её выбирают режимы --self-test/--tuning-report)
+    // нет собственной базы шрифтов: без каталога шрифтов Qt рисует текст в
+    // PDF-отчётах «квадратами». Подсказываем системный каталог шрифтов, если
+    // он не задан извне (можно переопределить через QT_QPA_FONTDIR).
+    if (qgetenv("QT_QPA_PLATFORM") == QByteArrayLiteral("offscreen") &&
+        qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR"))
+    {
+        const QString fonts =
+            QDir(qEnvironmentVariable("WINDIR", QStringLiteral("C:/Windows")))
+                .filePath(QStringLiteral("Fonts"));
+        if (QFileInfo::exists(fonts))
+            qputenv("QT_QPA_FONTDIR", fonts.toLocal8Bit());
     }
 
     QApplication app(argc, argv);
@@ -100,6 +119,16 @@ int main(int argc, char *argv[])
                                                "Без окна: экспортировать статические матрицы фильтра "
                                                "(Q/R/P0/H) в указанный каталог (csv/md/json) и выйти. Для CI."),
                                            QCoreApplication::translate("main", "dir"));
+    QCommandLineOption tuning_report_opt("tuning-report",
+                                         QCoreApplication::translate("main",
+                                             "Без окна: собрать PDF-отчёт о подборе по конфигу тюнера "
+                                             "(tuner_config*.json): best_params.txt и eval.json из его work_root."),
+                                         QCoreApplication::translate("main", "config.json"));
+    QCommandLineOption tuning_report_out_opt("tuning-report-out",
+                                             QCoreApplication::translate("main",
+                                                 "Куда сохранить отчёт о подборе "
+                                                 "(по умолчанию — reports/<набор>/tuning_<набор>.pdf)."),
+                                             QCoreApplication::translate("main", "file.pdf"));
 
     parser.addOption(data_opt);
     parser.addOption(out_opt);
@@ -111,6 +140,8 @@ int main(int argc, char *argv[])
     parser.addOption(self_test_report_opt);
     parser.addOption(self_test_generate_opt);
     parser.addOption(export_matrices_opt);
+    parser.addOption(tuning_report_opt);
+    parser.addOption(tuning_report_out_opt);
     parser.process(app);
 
     QString report_file;
@@ -196,6 +227,41 @@ int main(int argc, char *argv[])
             out << QStringLiteral("export-matrices: ok -> %1\n").arg(dir);
         else
             out << QStringLiteral("export-matrices: ошибка: %1\n").arg(error);
+        out.flush();
+        return ok ? 0 : 1;
+    }
+
+    // Режим --tuning-report: без окна собираем PDF-отчёт о подборе по конфигу
+    // тюнера (best_params.txt и eval.json из его work_root). Приложение только
+    // читает артефакты подбора и верстает PDF — математики здесь нет.
+    if (parser.isSet(tuning_report_opt))
+    {
+        const QString config =
+            QFileInfo(parser.value(tuning_report_opt)).absoluteFilePath();
+
+        QString out_path;
+        if (parser.isSet(tuning_report_out_opt))
+        {
+            out_path = QFileInfo(parser.value(tuning_report_out_opt)).absoluteFilePath();
+        }
+        else
+        {
+            // По умолчанию — в репозиторный каталог отчётов:
+            // reports/<набор>/tuning_<набор>.pdf.
+            QString dataset = gui::TuningReport::datasetFor(config);
+            if (dataset.isEmpty()) dataset = QStringLiteral("dataset");
+            out_path = QDir(QDir(gui::AppSettings::defaultReportsDir()).filePath(dataset))
+                           .filePath(QStringLiteral("tuning_%1.pdf").arg(dataset));
+        }
+
+        QString error;
+        const bool ok = gui::TuningReport::build(config, out_path, &error);
+
+        QTextStream out(stdout);
+        if (ok)
+            out << QStringLiteral("tuning-report: ok -> %1\n").arg(out_path);
+        else
+            out << QStringLiteral("tuning-report: ошибка: %1\n").arg(error);
         out.flush();
         return ok ? 0 : 1;
     }

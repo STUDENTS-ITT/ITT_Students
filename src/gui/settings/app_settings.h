@@ -50,6 +50,8 @@ struct AppSettings
     static QString defaultSettingsFile();
     // Каталог пресетов параметров по умолчанию: <каталог приложения>/presets.
     static QString defaultPresetsDir();
+    // Каталог отчётов по умолчанию: <корень проекта>/reports.
+    static QString defaultReportsDir();
 
     void saveWindowGeometry(const QMainWindow *window) const;
     void restoreWindowGeometry(QMainWindow *window) const;

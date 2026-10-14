@@ -11,10 +11,12 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QMarginsF>
+#include <QPageLayout>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfWriter>
 
+#include "core/utils/constants.h"
 #include "views/plots/plot_view.h"
 #include "views/plots/time_series_plot.h"
 
@@ -97,6 +99,87 @@ ConsistencyStats consistencyFor(const RunSeries &series)
         st.nees_mean = nees_sum / st.count;
         st.valid = st.dof > 0;
     }
+    return st;
+}
+
+// Метрики прогона относительно наземной истины. Определения те же, что и в
+// тюнере (tools/kalman_tuner/tune_kalman.py): планарная ошибка позиции,
+// горизонтальная скорость и модуль ошибки курса; свёртка — P95 и среднее.
+struct TruthStats
+{
+    int count = 0;
+    double pos_p95 = 0.0;
+    double pos_mean = 0.0;
+    double vel_p95 = 0.0;
+    double vel_mean = 0.0;
+    double hdg_p95 = 0.0;
+    double hdg_mean = 0.0;
+};
+
+TruthStats truthStats(const RunSeries &series, const QVector<TruthSample> &truth)
+{
+    TruthStats st;
+    if (series.rows.empty() || truth.isEmpty()) return st;
+
+    QVector<double> pos;
+    QVector<double> vel;
+    QVector<double> hdg;
+    pos.reserve(truth.size());
+    vel.reserve(truth.size());
+    hdg.reserve(truth.size());
+
+    // Для каждого отсчёта истины берём ближайшую по времени строку результата
+    // (ряды отсортированы, окно двигается вперёд).
+    std::size_t j = 0;
+    for (const TruthSample &tr : truth)
+    {
+        const double t = tr.v[0];
+        while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
+        std::size_t best = j;
+        if (j + 1 < series.rows.size() &&
+            std::abs(series.rows[j + 1].time - t) < std::abs(series.rows[j].time - t))
+        {
+            best = j + 1;
+        }
+        const RunSeries::Row &r = series.rows[best];
+
+        const double lat_ref = tr.v[2];
+        const double d_n = (r.result[RunSeries::Lat] - tr.v[2]) * 111000.0;
+        const double d_e = (r.result[RunSeries::Lon] - tr.v[1]) * 111000.0 *
+                           std::cos(lat_ref * DEG_TO_RAD);
+        pos.push_back(std::hypot(d_n, d_e));
+
+        vel.push_back(std::hypot(r.result[RunSeries::Vn] - tr.v[7],
+                                 r.result[RunSeries::Ve] - tr.v[9]));
+
+        double dh = std::fmod(r.result[RunSeries::Heading] - tr.v[4] + 180.0, 360.0);
+        if (dh < 0.0) dh += 360.0;
+        hdg.push_back(std::abs(dh - 180.0));
+    }
+
+    auto percentile95 = [](QVector<double> &v) {
+        if (v.isEmpty()) return 0.0;
+        std::sort(v.begin(), v.end());
+        const double idx = 0.95 * (v.size() - 1);
+        const std::size_t lo = static_cast<std::size_t>(std::floor(idx));
+        const std::size_t hi = static_cast<std::size_t>(std::ceil(idx));
+        const double frac = idx - static_cast<double>(lo);
+        return v[lo] * (1.0 - frac) + v[hi] * frac;
+    };
+    auto mean = [](const QVector<double> &v) {
+        if (v.isEmpty()) return 0.0;
+        double s = 0.0;
+        for (double x : v) s += x;
+        return s / static_cast<double>(v.size());
+    };
+
+    st.count = pos.size();
+    st.pos_mean = mean(pos);
+    st.vel_mean = mean(vel);
+    st.hdg_mean = mean(hdg);
+    st.pos_p95 = percentile95(pos);
+    st.vel_p95 = percentile95(vel);
+    st.hdg_p95 = percentile95(hdg);
     return st;
 }
 
@@ -200,6 +283,8 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
     const bool swap_series = (block.widget == nullptr);
     const QVector<PlotSeries> saved_series = swap_series ? plot->reportSeries()
                                                          : QVector<PlotSeries>();
+    const PlotView::RangeState saved_ranges =
+        swap_series ? plot->rangeState() : PlotView::RangeState();
     TimeSeriesPlot *swap_plot = swap_series ? qobject_cast<TimeSeriesPlot *>(plot) : nullptr;
     const QVector<double> saved_markers =
         (swap_plot != nullptr) ? swap_plot->syncMarkers() : QVector<double>();
@@ -210,14 +295,30 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
         else
             swap_plot->setSyncMarkers(block.sync_markers);
     }
-    if (swap_series) plot->setReportSeries(block.series);
+    if (swap_series)
+    {
+        plot->setReportSeries(block.series);
+        // Диапазоны — по рядам блока: иначе Y-шкала осталась бы от холста,
+        // а она у каждого блока своя (общий только диапазон времени).
+        plot->fitRangesToSeries();
+    }
 
+    // renderTo рисует в собственных координатах, начиная с (0, 0): сдвигаем
+    // painter в левый верхний угол блока и обрезаем по размеру блока, иначе
+    // график рисовался бы от края страницы и обрезался чужим прямоугольником.
     p.save();
-    p.setClipRect(box);
+    p.translate(box.topLeft());
+    p.setClipRect(QRectF(0, 0, width, height_pt));
     plot->renderTo(p, QSize(static_cast<int>(width), static_cast<int>(height_pt)));
     p.restore();
 
-    if (swap_series) plot->setReportSeries(saved_series);
+    if (swap_series)
+    {
+        plot->setReportSeries(saved_series);
+        // Возврат масштаба холста: сборка отчёта не должна менять состояние
+        // графика на экране.
+        plot->setRangeState(saved_ranges);
+    }
     // Метки синхронизации тоже относятся к состоянию виджета: после экспорта
     // их нужно вернуть, иначе на экране остались бы метки чужого блока.
     if (swap_plot != nullptr)
@@ -289,9 +390,14 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     }
 
     QPdfWriter writer(fileName);
-    writer.setResolution(96);
+    // Разрешение 72 dpi: единица координат painter — 1 pt, поэтому поля и
+    // геометрия страницы ниже заданы в пунктах (A4 = 595×842).
+    writer.setResolution(72);
     writer.setPageSize(QPageSize(QPageSize::A4));
-    writer.setPageMargins(QMarginsF(kMarginPt, kMarginPt, kMarginPt, kMarginPt));
+    // Поля не отдаём QPdfWriter (по умолчанию у setPageMargins единица —
+    // миллиметры, и 40 «пунктов» превратились бы в 40 мм), отступы
+    // рисуем сами через kMarginPt.
+    writer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout::Point);
     writer.setTitle(options.title.isEmpty() ? QObject::tr("Отчёт по прогону БИНС")
                                             : options.title);
 
@@ -317,11 +423,24 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     {
         drawTableRow(writer, p, cursor, QObject::tr("Каталог данных"), options.data_dir);
     }
+    if (!options.dataset.isEmpty())
+    {
+        drawTableRow(writer, p, cursor, QObject::tr("Набор"), options.dataset);
+    }
+    if (!options.preset.isEmpty())
+    {
+        drawTableRow(writer, p, cursor, QObject::tr("Пресет"), options.preset);
+    }
     drawTableRow(writer, p, cursor, QObject::tr("Отсчётов"), QString::number(series.rows.size()));
     drawTableRow(writer, p, cursor, QObject::tr("Кадров коррекции"),
                  QString::number(series.corrections.size()));
     drawTableRow(writer, p, cursor, QObject::tr("Длительность, с"),
                  QString::number(series.rows.back().time - series.rows.front().time, 'f', 2));
+    // Файл, по которому считается ошибка: наземная истина набора либо эталон
+    // СНС (как в отчёте о подборе).
+    drawTableRow(writer, p, cursor, QObject::tr("Ошибка считается по"),
+                 options.truth.isEmpty() ? QObject::tr("reference.txt (эталон СНС)")
+                                         : QObject::tr("truth.txt (наземная истина)"));
 
     // --- Согласованность фильтра ---
     const ConsistencyStats cs = consistencyFor(series);
@@ -344,6 +463,41 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
         drawTableRow(writer, p, cursor, QObject::tr("Нет данных"), QStringLiteral("—"));
     }
 
+    // --- Ошибка относительно истины ---
+    // Считается только когда в наборе есть корректный truth.txt; определения
+    // метрик совпадают с тюнером, чтобы числа «подбор/прогон» были сопоставимы.
+    if (!options.truth.isEmpty())
+    {
+        drawHeading(writer, p, cursor, QObject::tr("Ошибка относительно истины"),
+                    13.0, 14.0);
+        const TruthStats ts = truthStats(series, options.truth);
+        if (ts.count == 0)
+        {
+            drawTableRow(writer, p, cursor, QObject::tr("Нет совпадений по времени"),
+                         QStringLiteral("—"));
+        }
+        else
+        {
+            drawTableRow(writer, p, cursor, QObject::tr("Позиция, м (P95 / среднее)"),
+                         QStringLiteral("%1      %2")
+                             .arg(ts.pos_p95, 0, 'g', 4)
+                             .arg(ts.pos_mean, 0, 'g', 4),
+                         320.0);
+            drawTableRow(writer, p, cursor, QObject::tr("Скорость, м/с (P95 / среднее)"),
+                         QStringLiteral("%1      %2")
+                             .arg(ts.vel_p95, 0, 'g', 4)
+                             .arg(ts.vel_mean, 0, 'g', 4),
+                         320.0);
+            drawTableRow(writer, p, cursor, QObject::tr("Курс, ° (P95 / среднее)"),
+                         QStringLiteral("%1      %2")
+                             .arg(ts.hdg_p95, 0, 'g', 4)
+                             .arg(ts.hdg_mean, 0, 'g', 4),
+                         320.0);
+            drawTableRow(writer, p, cursor, QObject::tr("Сопоставлено точек"),
+                         QString::number(ts.count), 320.0);
+        }
+    }
+
     // --- Ошибки по компонентам ---
     drawHeading(writer, p, cursor, QObject::tr("Ошибки фильтра (кадры коррекции)"),
                 13.0, 14.0);
@@ -361,6 +515,31 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
                          .arg(st.rms, 0, 'g', 5)
                          .arg(st.peak, 0, 'g', 5),
                      200.0);
+    }
+
+    // --- Параметры фильтра ---
+    // Печатается снимок применённых параметров (dumpFilterSettings): секции
+    // ([filter], [tilt], [run]) — подзаголовками, ключи — строками таблицы.
+    if (!options.settings_ini.isEmpty())
+    {
+        drawHeading(writer, p, cursor, QObject::tr("Параметры фильтра"), 13.0, 14.0);
+        const QStringList ini_lines = options.settings_ini.split(QLatin1Char('\n'));
+        for (const QString &raw : ini_lines)
+        {
+            const QString line = raw.trimmed();
+            if (line.isEmpty()) continue;
+            if (line.startsWith(QLatin1Char(';')) || line.startsWith(QLatin1Char('#')))
+                continue;
+            if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']')))
+            {
+                drawHeading(writer, p, cursor, line, 11.0, 8.0);
+                continue;
+            }
+            const int eq = line.indexOf(QLatin1Char('='));
+            if (eq < 0) continue;
+            drawTableRow(writer, p, cursor, line.left(eq).trimmed(),
+                         line.mid(eq + 1).trimmed(), 280.0);
+        }
     }
 
     // --- Таблица NIS/NEES (выборка) ---

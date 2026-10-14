@@ -34,6 +34,8 @@ qt_add_executable(imitator_gui
 
     settings/app_settings.cpp
     settings/app_settings.h
+    settings/dataset_truth.cpp
+    settings/dataset_truth.h
 
     views/plots/plot_view.cpp
     views/plots/plot_view.h
@@ -65,6 +67,8 @@ qt_add_executable(imitator_gui
     export/gif_writer.h
     export/pdf_report.cpp
     export/pdf_report.h
+    export/tuning_report.cpp
+    export/tuning_report.h
 )
 
 target_link_libraries(imitator_gui PRIVATE

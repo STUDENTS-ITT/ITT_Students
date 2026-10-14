@@ -69,6 +69,7 @@ private slots:
     void summaryReportsDofAndErrors();
     void emptyRunIsRejected();
     void buildsPdfFile();
+    void buildsPdfWithTruth();
     void plotsDoNotChangeCanvasState();
 };
 
@@ -132,6 +133,13 @@ void TestPdfReport::buildsPdfFile()
 
     PdfReport::Options options;
     options.title = QStringLiteral("Тестовый отчёт");
+    // Шапка: имя набора и пресет; параметры фильтра — отдельным разделом.
+    options.dataset = QStringLiteral("static_300");
+    options.preset = QStringLiteral("presets/tuned_static_300.ini");
+    options.settings_ini = QStringLiteral("# комментарий\n[filter]\n"
+                                          "sigma_g = 2.12428e-02\n"
+                                          "sigma_a = 3e-03\n"
+                                          "[run]\nalign_time_s = 120\n");
 
     QString error;
     QVERIFY2(PdfReport::build(&canvas, run, {block}, options, path, &error),
@@ -151,6 +159,54 @@ void TestPdfReport::buildsPdfFile()
     QCOMPARE(canvas.seriesCount(), 1);
     QCOMPARE(canvas.reportSeries().size(), 1);
     QCOMPARE(canvas.reportSeries().first().name, QStringLiteral("исходный"));
+}
+
+void TestPdfReport::buildsPdfWithTruth()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("truth.pdf");
+
+    const RunSeries run = makeRun();
+
+    // Истина близка к результату, но не совпадает: раздел метрик должен
+    // получить ненулевые, но малые ошибки.
+    QVector<TruthSample> truth;
+    for (int i = 0; i <= 100; i += 10)
+    {
+        TruthSample tr;
+        tr.v[0] = run.rows[i].time;
+        tr.v[1] = run.rows[i].result[RunSeries::Lon] + 1e-5;   // ~1 м по долготе
+        tr.v[2] = run.rows[i].result[RunSeries::Lat];
+        tr.v[4] = run.rows[i].result[RunSeries::Heading];
+        tr.v[7] = run.rows[i].result[RunSeries::Vn] + 0.01;
+        tr.v[9] = run.rows[i].result[RunSeries::Ve] + 0.02;
+        truth.push_back(tr);
+    }
+
+    PdfReport::Options options;
+    options.title = QStringLiteral("Отчёт с истиной");
+    options.truth = truth;
+
+    TimeSeriesPlot canvas;
+    QString error;
+    QVERIFY2(PdfReport::build(&canvas, run, QVector<PdfReport::PlotBlock>(), options,
+                              path, &error),
+             qPrintable(error));
+    QVERIFY(QFileInfo::exists(path));
+    const qint64 with_truth = QFileInfo(path).size();
+    QVERIFY2(with_truth > 1000, "PDF не должен быть пустым");
+
+    // Без истины раздел не печатается — отчёт должен быть заметно меньше.
+    PdfReport::Options plain;
+    plain.title = options.title;
+    TimeSeriesPlot plain_canvas;
+    const QString plain_path = dir.filePath("plain.pdf");
+    QVERIFY2(PdfReport::build(&plain_canvas, run, QVector<PdfReport::PlotBlock>(), plain,
+                              plain_path, &error),
+             qPrintable(error));
+    QVERIFY2(QFileInfo(plain_path).size() < with_truth,
+             "раздел «Ошибка относительно истины» не добавился");
 }
 
 void TestPdfReport::plotsDoNotChangeCanvasState()

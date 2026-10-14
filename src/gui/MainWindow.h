@@ -136,6 +136,7 @@ private Q_SLOTS:
     void onApplyTuningPreset(const QString &path);
     void onTuningLog(const QString &text, int level);
     void onTuningFinished(bool ok);
+    void onTuningReport(const QString &config_path);
 
 Q_SIGNALS:
     // Прогон завершён (успешно, с ошибкой или по команде остановки).
@@ -222,6 +223,9 @@ private:
     TimeSeriesPlot *plot_innovation_ = nullptr;
     TimeSeriesPlot *plot_covariance_ = nullptr;
     TimeSeriesPlot *plot_consistency_ = nullptr;
+    // Отдельный «холст» для сборки графиков в PDF-отчёте: не привязан к
+    // вкладкам, поэтому в отчёт попадают сами ряды блоков, а не активная вкладка.
+    TimeSeriesPlot *report_canvas_ = nullptr;
 
     // Ряды, которые ещё можно включить/выключить в легенде.
     QAction *theme_action_ = nullptr;

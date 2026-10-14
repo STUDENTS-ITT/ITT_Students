@@ -203,6 +203,37 @@ void PlotView::resetRanges()
     update();
 }
 
+PlotView::RangeState PlotView::rangeState() const
+{
+    RangeState s;
+    s.xmin = xmin_;
+    s.xmax = xmax_;
+    s.ymin = ymin_;
+    s.ymax = ymax_;
+    s.auto_x = auto_x_;
+    s.auto_y = auto_y_;
+    return s;
+}
+
+void PlotView::setRangeState(const RangeState &state)
+{
+    xmin_ = state.xmin;
+    xmax_ = state.xmax;
+    ymin_ = state.ymin;
+    ymax_ = state.ymax;
+    auto_x_ = state.auto_x;
+    auto_y_ = state.auto_y;
+    invalidateCache();
+}
+
+void PlotView::fitRangesToSeries()
+{
+    auto_x_ = true;
+    auto_y_ = true;
+    updateAutoRange();
+    invalidateCache();
+}
+
 void PlotView::setLegendVisible(bool on)
 {
     legend_visible_ = on;

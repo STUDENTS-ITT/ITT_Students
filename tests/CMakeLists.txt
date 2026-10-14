@@ -118,6 +118,31 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
 endif()
 
+# PDF-отчёт о подборе — тоже код Qt-слоя; собираем его исходники напрямую
+# вместе с графиком сходимости (TimeSeriesPlot). Сам подбор тест не запускает:
+# рядом с синтетическим конфигом раскладываются best_params.txt и eval.json.
+qt_add_executable(test_tuning_report
+    test_tuning_report.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/views/plots/plot_view.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/views/plots/time_series_plot.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/export/tuning_report.cpp
+)
+target_link_libraries(test_tuning_report PRIVATE
+    Qt6::Test Qt6::Widgets Qt6::PrintSupport Qt6::Svg esfcore)
+target_include_directories(test_tuning_report PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_tuning_report COMMAND test_tuning_report)
+set_tests_properties(test_tuning_report PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_tuning_report PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
 # Экспорт статических матриц фильтра (Q/R/P0/H) — код GUI-слоя, собираем
 # исходник напрямую (как test_run_store); QtCore достаточно.
 qt_add_executable(test_matrices_exporter
@@ -137,6 +162,49 @@ set_tests_properties(test_matrices_exporter PROPERTIES
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_matrices_exporter PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Пути по умолчанию GUI-настроек (appRootDir и каталог отчётов reports/) —
+# код Qt-слоя, собираем исходник напрямую (как test_matrices_exporter).
+qt_add_executable(test_app_settings
+    test_app_settings.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/settings/app_settings.cpp
+)
+target_link_libraries(test_app_settings PRIVATE
+    Qt6::Test Qt6::Widgets)
+target_include_directories(test_app_settings PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_app_settings COMMAND test_app_settings)
+set_tests_properties(test_app_settings PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_app_settings PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
+# Проверка <data_dir>/truth.txt (вкладка «Подбор» умеет сравнивать с истиной
+# только при корректном файле) — код Qt-слоя, собираем исходник напрямую.
+qt_add_executable(test_dataset_truth
+    test_dataset_truth.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/settings/dataset_truth.cpp
+)
+target_link_libraries(test_dataset_truth PRIVATE Qt6::Test Qt6::Core)
+target_include_directories(test_dataset_truth PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_dataset_truth COMMAND test_dataset_truth)
+set_tests_properties(test_dataset_truth PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_dataset_truth PROPERTIES ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
 endif()
 
