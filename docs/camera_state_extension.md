@@ -1,7 +1,7 @@
 # Расширение вектора состояния фильтра Калмана: ошибки камеры
 
 **Статус:** черновик (design-документация, в код ещё не внесено).
-**Цель:** добавить в error-state фильтр `src/ins/ins_filter.h` состояния, описывающие систематические ошибки, связанные с камерой/видеопотоком, чтобы коррекция по видео работала корректно и СНС стала опциональным источником.
+**Цель:** добавить в error-state фильтр `src/core/ins/ins_filter.h` состояния, описывающие систематические ошибки, связанные с камерой/видеопотоком, чтобы коррекция по видео работала корректно и СНС стала опциональным источником.
 
 ---
 
@@ -419,12 +419,12 @@ H при этом та же (6×21), а плечо/установка входя
 
 ## 15. Чек-лист правок по файлам
 
-- [ ] `src/utils/constants.h` — при необходимости константы для R_cam (опц.)
-- [ ] `src/ins/ins_filter.h` — `KF_STATE=21` (или 22 для монокуляра); блоки F 5.1/5.2; Q 8 (и 13.5)
-- [ ] `src/navigation/aligner.h` — `initialCovariance` (9, и 13.6)
-- [ ] `src/navigation/camera_processor.h` — **новый файл**: `CameraSample`, сборка `H_cam`, `R_cam`, инновации, гейт
-- [ ] `src/navigation/trajectory.h` — `NavState` (lc, fc, scale), `applyKalmanCorrections` (10.1), правее tilt-обнуления (10.2), вызов `correct_camera` в `step()` при наличии кадра
-- [ ] `src/data_io/data_writer.h/.cpp` — (опц.) расширение `writeErrors`
+- [ ] `src/core/utils/constants.h` — при необходимости константы для R_cam (опц.)
+- [ ] `src/core/ins/ins_filter.h` — `KF_STATE=21` (или 22 для монокуляра); блоки F 5.1/5.2; Q 8 (и 13.5)
+- [ ] `src/core/navigation/aligner.h` — `initialCovariance` (9, и 13.6)
+- [ ] `src/core/navigation/camera_processor.h` — **новый файл**: `CameraSample`, сборка `H_cam`, `R_cam`, инновации, гейт
+- [ ] `src/core/navigation/trajectory.h` — `NavState` (lc, fc, scale), `applyKalmanCorrections` (10.1), правее tilt-обнуления (10.2), вызов `correct_camera` в `step()` при наличии кадра
+- [ ] `src/core/data_io/data_writer.h/.cpp` — (опц.) расширение `writeErrors`
 - [ ] `README.md` — обновить описания (по желанию)
 
 ---

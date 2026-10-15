@@ -213,8 +213,8 @@ inline void applyKalmanCorrections(NavState &st)
 
 // Один такт счисления БИНС.
 // На каждом шаге:
-//   1. Интегрирование скоростей, координат, ориентации по данным ИМУ (400 Гц).
-//   2. Коррекция pitch/roll по акселю (400 Гц, correctTilt).
+//   1. Интегрирование скоростей, координат, ориентации по данным ИМУ (200 Гц).
+//   2. Коррекция pitch/roll по акселю (200 Гц, correctTilt).
 //   3. Если do_correction — коррекция по СНС (1 Гц): координаты, скорости, курс.
 //   4. Запись результатов в приёмник sink.
 // telemetry — необязательный указатель на диагностику для GUI; при nullptr
@@ -357,7 +357,7 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         sink.writeReference(makeReference(time_s, ref));
     }
 
-    // Запись результата на каждом такте (400 Гц).
+    // Запись результата на каждом такте (200 Гц).
     sink.writeResult(makeResult(time_s, st));
 }
 

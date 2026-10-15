@@ -35,7 +35,7 @@ constexpr double NAV_R = R_EARTH;
 // Частота выдачи данных ИМУ, Гц.
 constexpr double IMU_RATE_HZ = 200.0;
 
-// Шаг дискретизации ИМУ, с (400 Гц).
+// Шаг дискретизации ИМУ, с (200 Гц).
 constexpr double IMU_PERIOD = 1.0 / IMU_RATE_HZ;
 
 // Частота обновления СНС, Гц.

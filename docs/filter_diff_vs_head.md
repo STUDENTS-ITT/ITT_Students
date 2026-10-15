@@ -15,7 +15,8 @@
 - развязки tilt-контура (П2);
 - переноса `predict()` после интегрирования номинала (П5);
 - калибровки P₀ по σ (aligner.h);
-- входных параметров `argv[1]`/`argv[2]` и окна outage (main.cpp);
+- входных параметров `argv[1]`/`argv[2]` (`src/console/main.cpp`) и окна outage
+  (`src/core/navigation/simulation.cpp`);
 - чтения `angle.dat` как радианов (data_reader.cpp).
 
 ---
@@ -24,11 +25,11 @@
 
 | Файл | Изменение | Строк |
 |---|---|---|
-| `src/ins/ins_filter.h` | `KalmanConfig`, Joseph (П3), развязка tilt (П2), `apply_reset_covariance` (П1) | +104 |
-| `src/main.cpp` | `applyParamsFile`, `argv[1]/argv[2]`, окно outage | +78 |
-| `src/navigation/aligner.h` | P₀ из `kalman_cfg` | +35/−19 |
-| `src/navigation/trajectory.h` | `predict` после номинала (П5), вызовы reset | +29/−22 |
-| `src/data_io/data_reader.cpp` | `angle.dat` — радианы как есть | +5/−5 |
+| `src/core/ins/ins_filter.h` | `KalmanConfig`, Joseph (П3), развязка tilt (П2), `apply_reset_covariance` (П1) | +104 |
+| `src/console/main.cpp`, `src/core/navigation/simulation.cpp`, `src/core/navigation/filter_settings.cpp` | `argv[1]/argv[2]`, окно outage, `applyLegacyParamsFile` | +78 |
+| `src/core/navigation/aligner.h` | P₀ из `kalman_cfg` | +35/−19 |
+| `src/core/navigation/trajectory.h` | `predict` после номинала (П5), вызовы reset | +29/−22 |
+| `src/core/data_io/data_reader.cpp` | `angle.dat` — радианы как есть | +5/−5 |
 
 ---
 
@@ -185,9 +186,9 @@ ins::predict(dt, st.lat, st.alt, C_cur, n_nav_cur, st.att, st.x, st.P);
 
 ---
 
-## 5. `main.cpp` — интерфейс запуска
+## 5. `src/console/main.cpp` — интерфейс запуска
 
-- `applyParamsFile(path)`: таблица ключ→поле, читает `sigma_g`, `sigma_a`,
+- `applyLegacyParamsFile(path)` (ныне `src/core/navigation/filter_settings.cpp`): таблица ключ→поле, читает `sigma_g`, `sigma_a`,
   `sigma_bg`, `sigma_ba`, `sigma_pos`, `sigma_v`, `sigma_ang` (→ `sig_hdg`),
   `outage_start_s`, `outage_end_s`; формат `ключ = значение`, пробелы
   обрезаются, неизвестные ключи и строки без `=` пропускаются; печатает
@@ -233,12 +234,12 @@ ins::predict(dt, st.lat, st.alt, C_cur, n_nav_cur, st.att, st.x, st.P);
 1. **σ привязаны к конкретному полёту.** Значения прогона №6 (особенно
    `sigma_a = 1.53` на верхней границе диапазона и `sigma_pos = 2.64e-8`) — не
    универсальные константы. На другом полёте требуется повторный тюнинг.
-2. **`main.cpp` жёстко использует `../data/raw`** как каталог данных по
+2. **`src/console/main.cpp` жёстко использует `../data/raw`** как каталог данных по
    умолчанию и пишет результаты в `utils::toolsDir(argv[0])`; при запуске вне
    `build/` каталог `tools` может отсутствовать.
 
 ---
 
 *Привязка к коду: `correct()`, `correctTilt()`, `apply_reset_covariance()` —
-`src/ins/ins_filter.h`; `step()` и apply*Corrections — `src/navigation/trajectory.h`;
-`initialCovariance()` — `src/navigation/aligner.h`; `applyParamsFile` — `src/main.cpp`.*
+`src/core/ins/ins_filter.h`; `step()` и apply*Corrections — `src/core/navigation/trajectory.h`;
+`initialCovariance()` — `src/core/navigation/aligner.h`; `applyLegacyParamsFile` — `src/core/navigation/filter_settings.cpp`.*

@@ -1,8 +1,8 @@
 # Защита комплексирования от отказов и аномалий СНС
 
 **Статус:** черновик (design-документация, в код не внесено).
-**Область:** `src/navigation`, `src/ins`, `src/data_io`. Без изменения математики
-ядра фильтра, без изменения `main.cpp` и `CMakeLists.txt`.
+**Область:** `src/core/navigation`, `src/core/ins`, `src/core/data_io`. Без изменения математики
+ядра фильтра, без изменения `src/core/navigation/simulation.cpp` и `CMakeLists.txt`.
 
 ---
 
@@ -47,18 +47,18 @@
 
 | Что | Где | Состояние |
 |---|---|---|
-| Проверка «пришёл новый кадр СНС» | `src/main.cpp:252` | есть: `!in_outage && (hold_ref.time != prev_gps_time)` |
-| Удержание последнего отсчёта | `src/main.cpp:228`, `main.cpp:259` | есть |
-| Окно искусственной потери СНС | `src/main.cpp:247` | есть (`outage_start_s`..`outage_end_s`) |
-| Обработка исключений при разборе | `src/data_io/data_reader.cpp` | **нет** (0 вхождений `try`/`catch`) |
-| Статус отсчёта СНС | `src/navigation/gps_processor.h:17` | **нет** (нет ни одного поля-признака) |
+| Проверка «пришёл новый кадр СНС» | `src/core/navigation/simulation.cpp:388` | есть: `!in_outage && (hold_ref.time != prev_gps_time)` |
+| Удержание последнего отсчёта | `src/core/navigation/simulation.cpp:343,363` | есть |
+| Окно искусственной потери СНС | `src/core/navigation/simulation.cpp:382` | есть (`outage_start_s`..`outage_end_s`) |
+| Обработка исключений при разборе | `src/core/data_io/data_reader.cpp` | **нет** (0 вхождений `try`/`catch`) |
+| Статус отсчёта СНС | `src/core/navigation/gps_processor.h:17` | **нет** (нет ни одного поля-признака) |
 | Валидация координат и скоростей | — | **нет** |
 | Детектор молчания СНС | — | **нет** |
 | Гейт по инновации | — | **нет** |
 | Учёт угла при проверке | `has_angle` в `nav::step` | есть, но означает факт существования файла, а не валидность угла в кадре |
 
 Следствие: любой пришедший кадр безусловно идёт в `ins::correct()`
-(`src/ins/ins_filter.h:199`). Нулевой фикс, `nan` и скачок на тысячи километров
+(`src/core/ins/ins_filter.h:199`). Нулевой фикс, `nan` и скачок на тысячи километров
 обрабатываются как обычное измерение, порог на «правдоподобие» отсутствует, а
 единственное ограничение — искусственное окно `outage_*`, задаваемое вручную.
 
@@ -86,8 +86,8 @@
 
 **Принцип 4. Решение принимается внутри `step()`.**
 Номинал БИНС и `st.P` доступны только в `nav::step()`
-(`src/navigation/trajectory.h:201`). Размещение логики там исключает
-необходимость передавать состояние фильтра в `main.cpp` и оставляет главный
+(`src/core/navigation/trajectory.h:201`). Размещение логики там исключает
+необходимость передавать состояние фильтра в `simulation.cpp` и оставляет главный
 цикл неизменным.
 
 ---
@@ -139,12 +139,12 @@
 отключение от отказа приёмника:
 
 ```
-apply = разрешение main.cpp (окно outage_*) ∧ статус отсчёта = VALID ∧ разрешение гейта
+apply = разрешение simulation.cpp (окно outage_*) ∧ статус отсчёта = VALID ∧ разрешение гейта
 ```
 
 | Источник | Природа | Виден гейту? |
 |---|---|---|
-| Ручное окно `outage_start_s..outage_end_s` (`src/main.cpp:247`) | воздействие оператора | нет |
+| Ручное окно `outage_start_s..outage_end_s` (`src/core/navigation/simulation.cpp:382`) | воздействие оператора | нет |
 | Статус `INVALID` | данные есть, но непригодны | да |
 | Автоматическая блокировка | расхождение с состоянием фильтра | да |
 
@@ -165,9 +165,9 @@ apply = разрешение main.cpp (окно outage_*) ∧ статус от�
 счётчик увеличивается, чтение продолжается со следующей строки.
 
 Отдельно различаются «строка плохая» и «файл кончился» — второе уже обрабатывается
-в `main.cpp:231` выходом из цикла подстановки с удержанием последнего отсчёта
-(`main.cpp:228`), а вторая ветка `main.cpp:242` пропускает такт, пока отсчёта
-ещё не было.
+в `src/core/navigation/simulation.cpp:359–375` выходом из цикла подстановки с
+удержанием последнего отсчёта (там же `:343,363`), а вторая ветка `:377`
+пропускает такт, пока отсчёта ещё не было.
 
 ### 5.2 Уровень 1 — самодостаточная валидация
 
@@ -254,7 +254,7 @@ thresh_pos = max(gnss_pos_floor_m, k · σ_pos_pred)
 ESKF склонен к излишней уверенности, и чисто статистический критерий при
 заниженном `P` даёт ложные срабатывания на нормальном СНС.
 
-Для ориентира: `σ_pos = 2.64e-08` рад при `R_EARTH = 6371e3` (`src/utils/constants.h:24`)
+Для ориентира: `σ_pos = 2.64e-08` рад при `R_EARTH = 6371e3` (`src/core/utils/constants.h:24`)
 даёт около 17 см, то есть 3σ ≈ 0.5 м. Абсолютный порог в десятки метров
 соответствует примерно 180σ — это величина «предохранителя», а не детектора;
 он не способен разделить «СНС плохая» и «БИНС плохой».
@@ -345,12 +345,12 @@ hold(n) = min(gnss_hold_s · 2^(n−1), gnss_hold_max_s)
 
 | Файл | Изменение | Оценка |
 |---|---|---|
-| `src/navigation/gnss_guard.h` | **новый**, вся логика уровней 0–6, `namespace nav`, header-only | основной объём |
-| `src/navigation/trajectory.h` | вызов гейта в `step()` перед `ins::correct()`; 3–6 строк | мало |
-| `src/navigation/gps_processor.h` | статус отсчёта в `SnsSample` | мало |
-| `src/data_io/data_reader.cpp` | `try`/`catch`, пропуск плохих строк, счётчики | мало |
-| `src/ins/ins_filter.h` | новые поля `KalmanConfig`; необязательный параметр раздутия `R` в `correct()` | мало |
-| `src/main.cpp` | **без изменений** | нет |
+| `src/core/navigation/gnss_guard.h` | **новый**, вся логика уровней 0–6, `namespace nav`, header-only | основной объём |
+| `src/core/navigation/trajectory.h` | вызов гейта в `step()` перед `ins::correct()`; 3–6 строк | мало |
+| `src/core/navigation/gps_processor.h` | статус отсчёта в `SnsSample` | мало |
+| `src/core/data_io/data_reader.cpp` | `try`/`catch`, пропуск плохих строк, счётчики | мало |
+| `src/core/ins/ins_filter.h` | новые поля `KalmanConfig`; необязательный параметр раздутия `R` в `correct()` | мало |
+| `src/core/navigation/simulation.cpp` | **без изменений** | нет |
 | `CMakeLists.txt` | **без изменений** (заголовок, не новый `.cpp`) | нет |
 | `tools/gnss_guard.txt` | новый лог решений защиты | мало |
 
@@ -362,7 +362,7 @@ hold(n) = min(gnss_hold_s · 2^(n−1), gnss_hold_max_s)
 
 ## 7. Параметры конфигурации
 
-Расширение `KalmanConfig` (`src/ins/ins_filter.h:33`):
+Расширение `KalmanConfig` (`src/core/ins/ins_filter.h:33`):
 
 | Ключ | Смысл | Ориентир |
 |---|---|---|
@@ -549,7 +549,7 @@ time  status  gate  apply  manual  dpos  dvel  dhdg  nis  sig_pos_pred  thresh  
 ---
 
 *Привязка к коду: точка вызова защиты — `nav::step()`,
-`src/navigation/trajectory.h:201`; применение коррекции — `ins::correct()`,
-`src/ins/ins_filter.h:199`; конфигурация — `KalmanConfig`,
-`src/ins/ins_filter.h:33`; отсчёт СНС — `SnsSample`,
-`src/navigation/gps_processor.h:17`; условие нового кадра — `src/main.cpp:252`.*
+`src/core/navigation/trajectory.h:201`; применение коррекции — `ins::correct()`,
+`src/core/ins/ins_filter.h:199`; конфигурация — `KalmanConfig`,
+`src/core/ins/ins_filter.h:33`; отсчёт СНС — `SnsSample`,
+`src/core/navigation/gps_processor.h:17`; условие нового кадра — `src/core/navigation/simulation.cpp:388`.*

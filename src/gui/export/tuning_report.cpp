@@ -302,11 +302,25 @@ bool readConfig(const QString &path, QJsonObject *cfg, QString *error)
 
 QString resolveWorkRoot(const QJsonObject &cfg, const QString &config_path)
 {
-    QString wr = cfg.value(QStringLiteral("work_root")).toString(
+    const QString wr = cfg.value(QStringLiteral("work_root")).toString(
         QStringLiteral("temp_tune_v3"));
-    if (!QFileInfo(wr).isAbsolute())
-        wr = QFileInfo(config_path).absoluteDir().filePath(wr);
-    return QDir::cleanPath(wr);
+    if (QFileInfo(wr).isAbsolute()) return QDir::cleanPath(wr);
+
+    // Относительный work_root. Тюнер (tune_kalman.py, analyze_evals.py) резолвит
+    // его от каталога самого тюнера, а не от каталога конфига, поэтому конфиги
+    // в подкаталогах (truth_cfg, truth_cfg_13b, truth_cfg_13g) указывают на
+    // каталог выше себя. Раньше отчёт по ним собирался пустым: каталог
+    // truth_cfg_13g/temp_tune_13g_* не существует. Ищем каталог тюнера —
+    // ближайший предок конфига с tune_kalman.py, поднимаясь вверх.
+    QDir dir(QFileInfo(config_path).absoluteDir());
+    for (int up = 0; up <= 4; ++up)
+    {
+        if (QFileInfo::exists(dir.filePath(QStringLiteral("tune_kalman.py"))))
+            return QDir::cleanPath(dir.filePath(wr));
+        if (!dir.cdUp()) break;
+    }
+    // Маркер не найден (конфиг вне дерева тюнера) — как раньше, каталог конфига.
+    return QDir::cleanPath(QFileInfo(config_path).absoluteDir().filePath(wr));
 }
 
 struct EvalPoint

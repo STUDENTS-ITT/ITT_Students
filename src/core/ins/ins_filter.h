@@ -328,7 +328,7 @@ inline Matrix H_tilt_matrix()
     return H;
 }
 
-// Коррекция только pitch/roll (на каждом такте ИМУ, 400 Гц).
+// Коррекция только pitch/roll (на каждом такте ИМУ, 200 Гц).
 inline void correctTilt(double pitch_bins, double roll_bins,
                         double pitch_meas, double roll_meas,
                         double sig_pitch, double sig_roll,

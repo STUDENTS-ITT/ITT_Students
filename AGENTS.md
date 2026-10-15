@@ -12,7 +12,7 @@
 
 По `docs/qt_integration_proposal.md` проект разделяется на два логических слоя:
 
-- **`src/core/` (Qt-независимое ядро)** — содержит `ins/`, `nav/`, `math_lib/`, `utils/`, `data_io/`. Собирается как статическая библиотека `esfcore` (C++17, STL). **Запрещено** добавлять какие-либо зависимости Qt в `core/`.
+- **`src/core/` (Qt-независимое ядро)** — содержит `ins/`, `navigation/`, `math_lib/`, `utils/`, `data_io/`. Собирается как статическая библиотека `esfcore` (C++17, STL). **Запрещено** добавлять какие-либо зависимости Qt в `core/`.
 - **`src/console/`** — консольный запуск (`main.cpp`), остаётся для обратной совместимости. Собирается как цель `imitator`, линкуется с `esfcore`.
 - **`src/gui/` (Qt)** — GUI-приложение `imitator_gui` на Qt 6.12.0 (QtWidgets). Графики — **только на `QPainter`** (без QtCharts/QtGraphs/QtQuick3D). Использует `QtConcurrent/QThread`, `QSettings`, `QtSql` (SQLite).
 

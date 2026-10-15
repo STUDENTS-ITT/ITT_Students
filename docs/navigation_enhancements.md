@@ -14,7 +14,7 @@
 
 ### 1.1 Что сейчас
 
-`Fj_matrix` (`src/ins/ins_filter.h:91`) строит первый порядок: `F = I + T·A`, все элементы `A` уже умножены на `T`. `Qj_matrix` (`src/ins/ins_filter.h:35`) — диагональ `σ²·T`. Такое приближение корректно только для очень малых `T`.
+`Fj_matrix` (`src/core/ins/ins_filter.h:91`) строит первый порядок: `F = I + T·A`, все элементы `A` уже умножены на `T`. `Qj_matrix` (`src/core/ins/ins_filter.h:35`) — диагональ `σ²·T`. Такое приближение корректно только для очень малых `T`.
 
 ### 1.2 Точная дискретизация
 
@@ -63,10 +63,10 @@ Fd = matrix_sum(Fd, multiply_scalar(A2, T * T / 2.0), KF_STATE);
 
 ### 1.5 Архитектурное следствие
 
-`Q_d` зависит от `A` (то есть от `C`, `f_nav`, `att`, `lat`), а `A` меняется каждый такт. Значит `Qj_matrix(T)` перестаёт быть константой — её нужно вычислять вместе с `F` в `predict` (`src/ins/ins_filter.h:164`). Рекомендация: ввести единую функцию-хелпер `discretize(A, Q_c⁰, T)` → `(Fd, Qd)` и вызывать её из `predict`.
+`Q_d` зависит от `A` (то есть от `C`, `f_nav`, `att`, `lat`), а `A` меняется каждый такт. Значит `Qj_matrix(T)` перестаёт быть константой — её нужно вычислять вместе с `F` в `predict` (`src/core/ins/ins_filter.h:164`). Рекомендация: ввести единую функцию-хелпер `discretize(A, Q_c⁰, T)` → `(Fd, Qd)` и вызывать её из `predict`.
 
 Править:
-- `src/ins/ins_filter.h` — `Fj_matrix`, `Qj_matrix`, `predict`; добавить `multiply_scalar`, `discretize`, `expm` (при Пути 2).
+- `src/core/ins/ins_filter.h` — `Fj_matrix`, `Qj_matrix`, `predict`; добавить `multiply_scalar`, `discretize`, `expm` (при Пути 2).
 
 ---
 
@@ -78,7 +78,7 @@ Fd = matrix_sum(Fd, multiply_scalar(A2, T * T / 2.0), KF_STATE);
 
 ### 2.2 Вариант A — детектор манёвра (детерминированно, по физике)
 
-Сигнал уже вычисляется в `src/navigation/maneuver_tilt.h` (адаптация `R` по акселю, гейт). Расширить на `Q`:
+Сигнал уже вычисляется в `src/core/navigation/maneuver_tilt.h` (адаптация `R` по акселю, гейт). Расширить на `Q`:
 
 ```
 man_score = max( |f_nav|/g − 1,  |ω_body|/ω_thr,  0 )
@@ -109,7 +109,7 @@ Q_vel/att ← Q_vel/att · α      (сглаживание EMA, обрезка �
 
 ### 2.4 Рекомендация
 
-Начать с варианта A, переиспользуя существующий гейт в `maneuver_tilt.h`. Правки: `src/ins/ins_filter.h` — параметр `man_factor` в `predict` (и в `discretize`); `src/navigation/trajectory.h` — вычисление `man_factor` из имеющейся динамики.
+Начать с варианта A, переиспользуя существующий гейт в `maneuver_tilt.h`. Правки: `src/core/ins/ins_filter.h` — параметр `man_factor` в `predict` (и в `discretize`); `src/core/navigation/trajectory.h` — вычисление `man_factor` из имеющейся динамики.
 
 ---
 
@@ -121,7 +121,7 @@ Q_vel/att ← Q_vel/att · α      (сглаживание EMA, обрезка �
 
 ### 3.2 Особенности данных
 
-В `gps.dat`/`imu.dat` есть колонка `timestamp_ns`, но сейчас читается только `time_s` (`src/data_io/data_reader.cpp:163`). Общие `time_s` у СНС и ИМУ уже синхронизированы, но фактическая задержка приёмника в файле не отражена — её моделируют состоянием фильтра либо калибруют офлайн.
+В `gps.dat`/`imu.dat` есть колонка `timestamp_ns`, но сейчас читается только `time_s` (`src/core/data_io/data_reader.cpp:163`). Общие `time_s` у СНС и ИМУ уже синхронизированы, но фактическая задержка приёмника в файле не отражена — её моделируют состоянием фильтра либо калибруют офлайн.
 
 ### 3.3 Вариант A — состояние δt в фильтре
 
@@ -152,9 +152,9 @@ H[3][δt] = a_n;  H[4][δt] = a_h;  H[5][δt] = a_e;   // ускорение в 
 
 ### 3.5 Правки
 
-- `src/ins/ins_filter.h` — расширение вектора состояния, блок `H` (+1 столбец), F/Q/P0 для δt.
-- `src/navigation/trajectory.h` — инжекция и обнуление `st.sync`.
-- `src/navigation/aligner.h` — `initialCovariance` (добавить `p_δt`).
+- `src/core/ins/ins_filter.h` — расширение вектора состояния, блок `H` (+1 столбец), F/Q/P0 для δt.
+- `src/core/navigation/trajectory.h` — инжекция и обнуление `st.sync`.
+- `src/core/navigation/aligner.h` — `initialCovariance` (добавить `p_δt`).
 - офлайн-вариант — новый скрипт `tools/estimate_dt.py`.
 
 ---
@@ -194,10 +194,10 @@ iSAM2 (GTSAM) решает граф инкрементально через Baye
 
 ## Сводный чек-лист по файлам
 
-- [ ] `src/ins/ins_filter.h` — дискретизация F/Q (1), адаптивное Q (2), состояние δt (3)
-- [ ] `src/navigation/trajectory.h` — `man_factor` (2.4), `st.sync` (3.5), запись ключевых кадров (4.4)
-- [ ] `src/navigation/aligner.h` — `p_δt` в `initialCovariance` (3.5)
-- [ ] `src/math_lib/matrix_ops.h` — `multiply_scalar` (1.4), при необходимости `expm`
+- [ ] `src/core/ins/ins_filter.h` — дискретизация F/Q (1), адаптивное Q (2), состояние δt (3)
+- [ ] `src/core/navigation/trajectory.h` — `man_factor` (2.4), `st.sync` (3.5), запись ключевых кадров (4.4)
+- [ ] `src/core/navigation/aligner.h` — `p_δt` в `initialCovariance` (3.5)
+- [ ] `src/core/math_lib/matrix_ops.h` — `multiply_scalar` (1.4), при необходимости `expm`
 - [ ] `tools/estimate_dt.py` — офлайн-калибровка задержки (3.4)
 - [ ] `tools/pose_graph.py` — офлайн-поза-граф с петлями (4.4)
 
@@ -205,4 +205,4 @@ iSAM2 (GTSAM) решает граф инкрементально через Baye
 
 ---
 
-*Привязка к коду: `Fj_matrix` — `ins_filter.h:91`, `Qj_matrix` — `ins_filter.h:35`, `predict` — `ins_filter.h:164`, `correct` — `ins_filter.h:181`, гейт/адаптация R — `src/navigation/maneuver_tilt.h`, чтение времени — `src/data_io/data_reader.cpp:163`. После внесения изменений — `cmake --build build --target imitator`.*
+*Привязка к коду: `Fj_matrix` — `ins_filter.h:91`, `Qj_matrix` — `ins_filter.h:35`, `predict` — `ins_filter.h:164`, `correct` — `ins_filter.h:181`, гейт/адаптация R — `src/core/navigation/maneuver_tilt.h`, чтение времени — `src/core/data_io/data_reader.cpp:163`. После внесения изменений — `cmake --build build --target imitator`.*

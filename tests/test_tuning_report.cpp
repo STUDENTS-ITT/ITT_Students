@@ -82,6 +82,7 @@ private slots:
     void buildsPdfFromArtifacts();
     void missingConfigFails();
     void workRootIsRelativeToConfig();
+    void workRootIsRelativeToTunerDir();
     void datasetNameFromConfig();
 };
 
@@ -135,8 +136,40 @@ void TestTuningReport::workRootIsRelativeToConfig()
     const QString config = dir.path() + "/tuner_config.json";
     writeUtf8(config, configText());
 
+    // Маркера каталога тюнера рядом нет — путь относительно каталога конфига.
     const QString work = gui::TuningReport::workRootFor(config);
     QCOMPARE(QDir::cleanPath(work), QDir::cleanPath(dir.path() + "/work"));
+}
+
+void TestTuningReport::workRootIsRelativeToTunerDir()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString tuner = dir.path() + "/tools/kalman_tuner";
+
+    // Маркер каталога тюнера: именно так work_root трактует tune_kalman.py.
+    writeUtf8(tuner + "/tune_kalman.py", QString());
+    writeUtf8(tuner + "/temp_tune_13g_square650/best_params.txt",
+              bestParamsText());
+
+    // Конфиг лежит в подкаталоге и указывает work_root в каталог тюнера —
+    // так же, как конфиги в tools/kalman_tuner/truth_cfg_13g/.
+    const QString config = tuner + "/truth_cfg_13g/cfg_square650.json";
+    writeUtf8(config, configText().replace(
+                          QStringLiteral("\"work_root\": \"work\""),
+                          QStringLiteral("\"work_root\": \"temp_tune_13g_square650\"")));
+
+    const QString work = gui::TuningReport::workRootFor(config);
+    QCOMPARE(QDir::cleanPath(work),
+             QDir::cleanPath(tuner + "/temp_tune_13g_square650"));
+
+    // Отчёт по такому конфигу собирается (раньше был пустым).
+    const QString pdf = dir.path() + "/out/tuning.pdf";
+    QString error;
+    QVERIFY2(gui::TuningReport::build(config, pdf, &error), qPrintable(error));
+    QFile f(pdf);
+    QVERIFY(f.exists());
+    QVERIFY(f.size() > 1000);
 }
 
 void TestTuningReport::datasetNameFromConfig()
