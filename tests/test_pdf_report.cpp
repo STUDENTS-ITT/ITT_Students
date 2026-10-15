@@ -68,6 +68,7 @@ private slots:
     void summaryCountsRows();
     void summaryReportsDofAndErrors();
     void deviationsCountPeaksAndThresholds();
+    void deviationsRespectAlignWindow();
     void emptyRunIsRejected();
     void buildsPdfFile();
     void buildsPdfWithTruth();
@@ -173,6 +174,46 @@ void TestPdfReport::deviationsCountPeaksAndThresholds()
 
     // Нет ни истины, ни эталона — таблица не строится.
     QVERIFY(PdfReport::deviations(run, QVector<TruthSample>()).isEmpty());
+}
+
+// Окно анализа: точки до конца выставки в таблицу отклонений не попадают —
+// иначе предвыставочные всплески (курс/высота) портили бы метрики отчёта.
+void TestPdfReport::deviationsRespectAlignWindow()
+{
+    RunSeries run;
+    for (int i = 0; i < 10; i++)
+    {
+        RunSeries::Row r{};
+        r.time = 0.1 * i;
+        r.result[RunSeries::Alt] = 100.0;
+        run.rows.push_back(r);
+    }
+
+    // Истина: до t = 0.5 с — большое отклонение, после — малое.
+    QVector<TruthSample> truth;
+    for (int i = 0; i < 10; i++)
+    {
+        TruthSample tr;
+        tr.v[0] = 0.1 * i;
+        tr.v[3] = 100.0 - (i < 5 ? 10.0 : 0.3);
+        truth.push_back(tr);
+    }
+
+    // Без окна — 10 точек, максимум ~10 м.
+    const QVector<PdfReport::DeviationGroup> all = PdfReport::deviations(run, truth);
+    QCOMPARE(all[0].samples, 10);
+    QCOMPARE(all.size(), 3);
+    const auto find_alt = [](const PdfReport::DeviationGroup &g) {
+        for (const PdfReport::DeviationRow &r : g.rows)
+            if (r.name == QString::fromUtf8("Высота")) return r;
+        return PdfReport::DeviationRow();
+    };
+    QVERIFY2(std::abs(find_alt(all[0]).peak - 10.0) < 1e-12, "peak_all");
+
+    // С окном t >= 0.5 с — только 5 точек после выставки, максимум ~0.3 м.
+    const QVector<PdfReport::DeviationGroup> windowed = PdfReport::deviations(run, truth, 0.5);
+    QCOMPARE(windowed[0].samples, 5);
+    QVERIFY2(std::abs(find_alt(windowed[0]).peak - 0.3) < 1e-12, "peak_windowed");
 }
 
 void TestPdfReport::emptyRunIsRejected()

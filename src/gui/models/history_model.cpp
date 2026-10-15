@@ -40,7 +40,9 @@ bool HistoryModel::loadRun(qint64 runId, RunSeries &series) const
 
     std::vector<double> times;
     std::vector<std::vector<double>> errors;
-    if (!store_->loadErrors(runId, times, errors)) return false;
+    std::vector<double> nis;
+    std::vector<double> nees;
+    if (!store_->loadErrors(runId, times, errors, &nis, &nees)) return false;
 
     for (std::size_t k = 0; k < times.size(); k++)
     {
@@ -50,7 +52,22 @@ bool HistoryModel::loadRun(qint64 runId, RunSeries &series) const
         {
             row.x[i] = errors[k][i];
         }
+        if (k < nis.size()) row.nis = nis[k];
+        if (k < nees.size()) row.nees = nees[k];
         series.corrections.push_back(row);
+
+        // Согласованность (NIS/NEES) — тот же разреженный ряд. У прогонов,
+        // сохранённых до появления этих колонок, значения нулевые: такие ряды
+        // пропускаем, чтобы отчёт показывал «Нет данных», а не нули.
+        if (k < nis.size() && (nis[k] != 0.0 || nees[k] != 0.0))
+        {
+            RunSeries::ConsistencyRow consistency;
+            consistency.time = times[k];
+            consistency.nis = nis[k];
+            consistency.nees = nees[k];
+            consistency.dof = ins::KF_MEAS;
+            series.consistency.push_back(consistency);
+        }
     }
 
     const QVector<SampleRow> samples = store_->loadSamples(runId);

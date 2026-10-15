@@ -819,14 +819,22 @@ void MainWindow::onWorkerFinished(bool ok, const QString &message)
             std::vector<std::vector<double>> errors;
             times.reserve(series_.corrections.size());
             errors.reserve(series_.corrections.size());
+            // Ряды согласованности — те же кадры коррекции: сохраняем, чтобы
+            // отчёт по прогону из истории не терял раздел NIS/NEES.
+            std::vector<double> nis;
+            std::vector<double> nees;
+            nis.reserve(series_.corrections.size());
+            nees.reserve(series_.corrections.size());
             for (const RunSeries::CorrectionRow &c : series_.corrections)
             {
                 times.push_back(c.time);
                 std::vector<double> x(ins::KF_STATE, 0.0);
                 for (int i = 0; i < ins::KF_STATE; i++) x[i] = c.x[i];
                 errors.push_back(x);
+                nis.push_back(c.nis);
+                nees.push_back(c.nees);
             }
-            store_.appendErrors(current_run_id_, times, errors);
+            store_.appendErrors(current_run_id_, times, errors, nis, nees);
 
             // Диагонали ковариации по всем тактам ИМУ: нужны для графика
             // P и для оценки качества фильтра после загрузки из истории.
@@ -1824,6 +1832,25 @@ bool MainWindow::exportReportTo(const QString &path, QString *error)
     // Тот же кэш используется для наложения истины на графики.
     ensureTruthLoaded();
     options.truth = truth_;
+
+    // Окно анализа — время выставки: как в simulation.cpp, сначала StartupNav.ini
+    // набора, при его отсутствии — align_fallback_s настроек; явное
+    // переопределение (align_time_override_s) имеет приоритет. Предвыставочные
+    // отсчёты в статистику не берутся.
+    {
+        const nav::FilterSettings cur = params_->currentSettings();
+        double align_time_s = cur.align_fallback_s;
+        if (!settings_.data_dir.isEmpty())
+        {
+            const QString startup =
+                QDir(settings_.data_dir).filePath(QStringLiteral("StartupNav.ini"));
+            double lon = 0.0, lat = 0.0, alt = 0.0, t = 0.0;
+            if (nav::readStartupNav(startup.toStdString(), lon, lat, alt, t) && t > 0.0)
+                align_time_s = t;
+        }
+        if (cur.align_time_override_s > 0.0) align_time_s = cur.align_time_override_s;
+        options.align_time_s = align_time_s;
+    }
 
     // Снимок параметров: у сохранённого прогона берём их из истории, иначе —
     // текущие значения таблицы «Параметры».

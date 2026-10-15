@@ -116,7 +116,8 @@ struct TruthStats
     double hdg_mean = 0.0;
 };
 
-TruthStats truthStats(const RunSeries &series, const QVector<TruthSample> &truth)
+TruthStats truthStats(const RunSeries &series, const QVector<TruthSample> &truth,
+                      double align_time_s)
 {
     TruthStats st;
     if (series.rows.empty() || truth.isEmpty()) return st;
@@ -129,11 +130,13 @@ TruthStats truthStats(const RunSeries &series, const QVector<TruthSample> &truth
     hdg.reserve(truth.size());
 
     // Для каждого отсчёта истины берём ближайшую по времени строку результата
-    // (ряды отсортированы, окно двигается вперёд).
+    // (ряды отсортированы, окно двигается вперёд). Отсчёты до конца выставки
+    // пропускаем — это окно анализа, см. PdfReport::Options::align_time_s.
     std::size_t j = 0;
     for (const TruthSample &tr : truth)
     {
         const double t = tr.v[0];
+        if (t < align_time_s) continue;
         while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
         std::size_t best = j;
         if (j + 1 < series.rows.size() &&
@@ -457,7 +460,8 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
 } // namespace
 
 QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series,
-                                                        const QVector<TruthSample> &truth)
+                                                        const QVector<TruthSample> &truth,
+                                                        double align_time_s)
 {
     QVector<DeviationGroup> groups;
     if (series.rows.empty()) return groups;
@@ -474,6 +478,8 @@ QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series
         for (const TruthSample &tr : truth)
         {
             const double t = tr.v[0];
+            // Окно анализа: точки до конца выставки в таблицу не берём.
+            if (t < align_time_s) continue;
             while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
             std::size_t best = j;
             if (j + 1 < series.rows.size() &&
@@ -491,6 +497,7 @@ QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series
         for (std::size_t i = 0; i < series.rows.size(); ++i)
         {
             if (!series.rows[i].has_reference) continue;
+            if (series.rows[i].time < align_time_s) continue;
             row_idx.push_back(static_cast<int>(i));
             refs.push_back(series.rows[i].reference);
         }
@@ -681,6 +688,14 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     drawTableRow(writer, p, cursor, QObject::tr("Ошибка считается по"),
                  options.truth.isEmpty() ? QObject::tr("reference.txt (эталон СНС)")
                                          : QObject::tr("truth.txt (наземная истина)"));
+    // Окно анализа: во время выставки фильтр ещё не сошёлся, поэтому её ошибки
+    // в статистику не берутся (см. PdfReport::Options::align_time_s).
+    if (options.align_time_s > 0.0)
+    {
+        drawTableRow(writer, p, cursor, QObject::tr("Окно анализа, с"),
+                     QObject::tr("t ≥ %1 (после выставки)")
+                         .arg(options.align_time_s, 0, 'f', 2));
+    }
 
     // --- Согласованность фильтра ---
     const ConsistencyStats cs = consistencyFor(series);
@@ -710,7 +725,7 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     {
         drawHeading(writer, p, cursor, QObject::tr("Ошибка относительно истины"),
                     13.0, 14.0);
-        const TruthStats ts = truthStats(series, options.truth);
+        const TruthStats ts = truthStats(series, options.truth, options.align_time_s);
         if (ts.count == 0)
         {
             drawTableRow(writer, p, cursor, QObject::tr("Нет совпадений по времени"),
@@ -742,7 +757,8 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
     // Для каждой величины: максимум модуля отклонения и число точек, где
     // отклонение превысило порог. Опора та же, что у ошибки выше: наземная
     // истина, а при её отсутствии — эталон СНС (кадры коррекции).
-    const QVector<DeviationGroup> dev_groups = deviations(series, options.truth);
+    const QVector<DeviationGroup> dev_groups =
+        deviations(series, options.truth, options.align_time_s);
     if (!dev_groups.isEmpty() && dev_groups.front().samples > 0)
     {
         drawHeading(writer, p, cursor,

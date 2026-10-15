@@ -77,8 +77,13 @@ public:
 
     // Записать серию векторов ошибок фильтра (кадры коррекции).
     // times[k] — время, errors[k] — вектор из ins::KF_STATE компонент.
+    // nis/nees — необязательные ряды согласованности тех же кадров (по одному
+    // значению на кадр): без них отчёт, собранный по прогону из истории,
+    // терял бы раздел NIS/NEES.
     bool appendErrors(qint64 runId, const std::vector<double> &times,
-                      const std::vector<std::vector<double>> &errors);
+                      const std::vector<std::vector<double>> &errors,
+                      const std::vector<double> &nis = {},
+                      const std::vector<double> &nees = {});
 
     // Записать диагонали P (прорежено).
     bool appendCovariances(qint64 runId, const std::vector<double> &times,
@@ -90,9 +95,12 @@ public:
     // Загрузить траекторию прогона.
     QVector<SampleRow> loadSamples(qint64 runId) const;
 
-    // Загрузить ошибки фильтра прогона.
+    // Загрузить ошибки фильтра прогона. nis/nees (необязательные выходы) —
+    // ряды согласованности: у прогонов, сохранённых до их появления, нули.
     bool loadErrors(qint64 runId, std::vector<double> &times,
-                    std::vector<std::vector<double>> &errors) const;
+                    std::vector<std::vector<double>> &errors,
+                    std::vector<double> *nis = nullptr,
+                    std::vector<double> *nees = nullptr) const;
 
     // Загрузка диагоналей ковариации прогона (по всем тактам ИМУ).
     bool loadCovariances(qint64 runId, std::vector<double> &times,

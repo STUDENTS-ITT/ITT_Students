@@ -6,6 +6,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QSet>
 #include <QVariant>
 #include <atomic>
 
@@ -100,6 +101,7 @@ bool RunStore::createSchema(QString *error)
         "  x0 REAL, x1 REAL, x2 REAL, x3 REAL, x4 REAL,"
         "  x5 REAL, x6 REAL, x7 REAL, x8 REAL, x9 REAL,"
         "  x10 REAL, x11 REAL, x12 REAL, x13 REAL, x14 REAL,"
+        "  nis REAL, nees REAL, nis_dof INTEGER DEFAULT 0,"
         "  PRIMARY KEY (run_id, t))",
 
         "CREATE TABLE IF NOT EXISTS covariances ("
@@ -142,6 +144,33 @@ bool RunStore::createSchema(QString *error)
     {
         QSqlQuery alter(db_);
         if (!alter.exec("ALTER TABLE runs ADD COLUMN settings_ini TEXT"))
+        {
+            if (error) *error = alter.lastError().text();
+            return false;
+        }
+    }
+
+    // Та же миграция для колонок согласованности filter_errors (NIS/NEES):
+    // без них сохранённый прогон терял раздел NIS/NEES, и отчёт по прогону из
+    // истории печатал «Нет данных» (включая отчёт self-test, который открывает
+    // прогон из истории перед сборкой PDF).
+    QSet<QString> error_columns;
+    QSqlQuery error_info(db_);
+    if (error_info.exec("PRAGMA table_info(filter_errors)"))
+    {
+        while (error_info.next()) error_columns.insert(error_info.value(1).toString());
+    }
+    const char *consistency_columns[] = {"nis", "nees", "nis_dof"};
+    const char *consistency_sql[] = {
+        "ALTER TABLE filter_errors ADD COLUMN nis REAL",
+        "ALTER TABLE filter_errors ADD COLUMN nees REAL",
+        "ALTER TABLE filter_errors ADD COLUMN nis_dof INTEGER DEFAULT 0",
+    };
+    for (int i = 0; i < 3; ++i)
+    {
+        if (error_columns.contains(QLatin1String(consistency_columns[i]))) continue;
+        QSqlQuery alter(db_);
+        if (!alter.exec(QLatin1String(consistency_sql[i])))
         {
             if (error) *error = alter.lastError().text();
             return false;
@@ -218,13 +247,17 @@ bool RunStore::appendSamples(qint64 runId, const QVector<SampleRow> &rows)
 }
 
 bool RunStore::appendErrors(qint64 runId, const std::vector<double> &times,
-                            const std::vector<std::vector<double>> &errors)
+                            const std::vector<std::vector<double>> &errors,
+                            const std::vector<double> &nis,
+                            const std::vector<double> &nees)
 {
     if (!isOpen() || times.empty()) return true;
 
     QStringList cols;
     cols << "run_id" << "t";
     for (int i = 0; i < ins::KF_STATE; i++) cols << QString("x%1").arg(i);
+    // Согласованность кадра: NIS/NEES и dof (0 — данных нет, см. loadErrors).
+    cols << "nis" << "nees" << "nis_dof";
 
     db_.transaction();
     QSqlQuery q(db_);
@@ -241,6 +274,10 @@ bool RunStore::appendErrors(qint64 runId, const std::vector<double> &times,
         {
             q.addBindValue(static_cast<std::size_t>(i) < x.size() ? x[i] : 0.0);
         }
+        const bool has_nis = k < nis.size() && k < nees.size();
+        q.addBindValue(has_nis ? nis[k] : 0.0);
+        q.addBindValue(has_nis ? nees[k] : 0.0);
+        q.addBindValue(has_nis ? ins::KF_MEAS : 0);
         if (!q.exec())
         {
             db_.rollback();
@@ -347,14 +384,18 @@ QVector<SampleRow> RunStore::loadSamples(qint64 runId) const
 }
 
 bool RunStore::loadErrors(qint64 runId, std::vector<double> &times,
-                          std::vector<std::vector<double>> &errors) const
+                          std::vector<std::vector<double>> &errors,
+                          std::vector<double> *nis, std::vector<double> *nees) const
 {
     times.clear();
     errors.clear();
+    if (nis != nullptr) nis->clear();
+    if (nees != nullptr) nees->clear();
     if (!isOpen()) return false;
 
     QStringList cols;
     for (int i = 0; i < ins::KF_STATE; i++) cols << QString("x%1").arg(i);
+    cols << "nis" << "nees" << "nis_dof";
 
     QSqlQuery q(db_);
     if (!q.prepare(QString("SELECT t, %1 FROM filter_errors WHERE run_id = ? ORDER BY t")
@@ -374,6 +415,12 @@ bool RunStore::loadErrors(qint64 runId, std::vector<double> &times,
             x[i] = q.value(i + 1).toDouble();
         }
         errors.push_back(x);
+
+        const double row_nis = q.value(ins::KF_STATE + 1).toDouble();
+        const double row_nees = q.value(ins::KF_STATE + 2).toDouble();
+        const int row_dof = q.value(ins::KF_STATE + 3).toInt();
+        if (nis != nullptr) nis->push_back(row_dof > 0 ? row_nis : 0.0);
+        if (nees != nullptr) nees->push_back(row_dof > 0 ? row_nees : 0.0);
     }
     return true;
 }
