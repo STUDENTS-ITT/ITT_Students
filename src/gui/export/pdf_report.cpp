@@ -183,6 +183,48 @@ TruthStats truthStats(const RunSeries &series, const QVector<TruthSample> &truth
     return st;
 }
 
+// Названия величин в таблице отклонений — те же, что в легендах графиков.
+const char *quantityName(int column)
+{
+    switch (column)
+    {
+    case RunSeries::Lon: return "Долгота";
+    case RunSeries::Lat: return "Широта";
+    case RunSeries::Alt: return "Высота";
+    case RunSeries::Heading: return "Курс";
+    case RunSeries::Pitch: return "Тангаж";
+    case RunSeries::Roll: return "Крен";
+    case RunSeries::Vn: return "Vn";
+    case RunSeries::Ve: return "Ve";
+    case RunSeries::Vh: return "Vh";
+    default: return "Величина";
+    }
+}
+
+// Модуль отклонения одной величины от опоры в единицах таблицы: широта и
+// долгота переводятся в метры, курс берётся по кратчайшей дуге, остальные
+// величины — в своих единицах (метры, м/с).
+double deviationOf(const RunSeries::Row &row, const double *ref, int column)
+{
+    switch (column)
+    {
+    case RunSeries::Lat:
+        return std::abs(row.result[RunSeries::Lat] - ref[RunSeries::Lat]) * 111000.0;
+    case RunSeries::Lon:
+        return std::abs(row.result[RunSeries::Lon] - ref[RunSeries::Lon]) * 111000.0 *
+               std::cos(ref[RunSeries::Lat] * DEG_TO_RAD);
+    case RunSeries::Heading:
+    {
+        double dh = std::fmod(row.result[RunSeries::Heading] - ref[RunSeries::Heading] + 180.0,
+                              360.0);
+        if (dh < 0.0) dh += 360.0;
+        return std::abs(dh - 180.0);
+    }
+    default:
+        return std::abs(row.result[column] - ref[column]);
+    }
+}
+
 // Постраничная отрисовка текста: возвращает Y-координату нижней границы
 // нарисованного блока.
 class PdfCursor
@@ -255,6 +297,80 @@ void drawTableRow(QPdfWriter &writer, QPainter &p, PdfCursor &cursor, const QStr
     cursor.advance(fm.height() + 2);
     p.setFont(QFont());
     Q_UNUSED(writer);
+}
+
+// Таблица «величина × порог»: слева название величины, затем максимум модуля
+// отклонения и по колонке на порог — число точек, где отклонение его превысило.
+// Шапка повторяется, если таблица не помещается на страницу целиком.
+void drawDeviationGroup(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
+                        const PdfReport::DeviationGroup &group)
+{
+    QFont table_font;
+    table_font.setPointSizeF(8.5);
+    const QFontMetrics fm(table_font);
+    const double row_h = fm.height() + 2.0;
+
+    const double total = kPageWidthPt - 2 * kMarginPt;
+    const double label_w = 110.0;
+    const double peak_w = 68.0;
+    const int n = group.thresholds.size();
+    const double col_w = n > 0 ? (total - label_w - peak_w) / n : 0.0;
+    const double bottom = kPageHeightPt - kMarginPt;
+
+    const auto draw_head = [&]() {
+        // Заголовок группы и шапка таблицы должны попасть на одну страницу.
+        cursor.ensure(3 * 11.0 + row_h + 8.0);
+        drawHeading(writer, p, cursor,
+                    QStringLiteral("%1, %2").arg(group.caption, group.unit), 11.0, 10.0);
+
+        p.setFont(table_font);
+        p.setPen(Qt::black);
+        double x = kMarginPt;
+        p.drawText(QRectF(x, cursor.y(), label_w, row_h),
+                   Qt::AlignLeft | Qt::AlignVCenter, QObject::tr("Величина"));
+        x += label_w;
+        p.drawText(QRectF(x, cursor.y(), peak_w, row_h),
+                   Qt::AlignRight | Qt::AlignVCenter, QObject::tr("max |Δ|"));
+        x += peak_w;
+        for (int t = 0; t < n; ++t)
+        {
+            p.drawText(QRectF(x, cursor.y(), col_w, row_h), Qt::AlignRight | Qt::AlignVCenter,
+                       QStringLiteral("> %1").arg(QString::number(group.thresholds[t], 'g', 3)));
+            x += col_w;
+        }
+        cursor.advance(row_h);
+        // Линейка под шапкой отделяет её от строк таблицы.
+        p.drawLine(QPointF(kMarginPt, cursor.y()), QPointF(kMarginPt + total, cursor.y()));
+        cursor.advance(3.0);
+    };
+
+    draw_head();
+
+    for (const PdfReport::DeviationRow &row : group.rows)
+    {
+        if (cursor.y() + row_h > bottom)
+        {
+            cursor.newPage();
+            draw_head();
+        }
+        p.setFont(table_font);
+        p.setPen(Qt::black);
+        double x = kMarginPt;
+        p.drawText(QRectF(x, cursor.y(), label_w, row_h),
+                   Qt::AlignLeft | Qt::AlignVCenter, row.name);
+        x += label_w;
+        p.drawText(QRectF(x, cursor.y(), peak_w, row_h), Qt::AlignRight | Qt::AlignVCenter,
+                   QString::number(row.peak, 'g', 4));
+        x += peak_w;
+        for (int t = 0; t < row.counts.size(); ++t)
+        {
+            p.drawText(QRectF(x, cursor.y(), col_w, row_h), Qt::AlignRight | Qt::AlignVCenter,
+                       QString::number(row.counts[t]));
+            x += col_w;
+        }
+        cursor.advance(row_h);
+    }
+    p.setFont(QFont());
 }
 
 // График в рамке на текущей странице: содержимое рисуется тем же renderTo,
@@ -340,6 +456,98 @@ void drawPlotBlock(QPdfWriter &writer, QPainter &p, PdfCursor &cursor,
 
 } // namespace
 
+QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series,
+                                                        const QVector<TruthSample> &truth)
+{
+    QVector<DeviationGroup> groups;
+    if (series.rows.empty()) return groups;
+
+    // Точки сравнения: строка результата и опорная строка той же раскладки, что
+    // result (time, lon, lat, alt, heading, pitch, roll, vn, vh, ve).
+    QVector<int> row_idx;
+    QVector<const double *> refs;
+
+    if (!truth.isEmpty())
+    {
+        // Как в truthStats: каждому отсчёту истины — ближайшая по времени строка.
+        std::size_t j = 0;
+        for (const TruthSample &tr : truth)
+        {
+            const double t = tr.v[0];
+            while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
+            std::size_t best = j;
+            if (j + 1 < series.rows.size() &&
+                std::abs(series.rows[j + 1].time - t) < std::abs(series.rows[j].time - t))
+            {
+                best = j + 1;
+            }
+            row_idx.push_back(static_cast<int>(best));
+            refs.push_back(tr.v);
+        }
+    }
+    else
+    {
+        // Наборы без истины: опора — эталон СНС (кадры коррекции).
+        for (std::size_t i = 0; i < series.rows.size(); ++i)
+        {
+            if (!series.rows[i].has_reference) continue;
+            row_idx.push_back(static_cast<int>(i));
+            refs.push_back(series.rows[i].reference);
+        }
+    }
+    if (row_idx.isEmpty()) return groups;
+
+    // Пороги по группам: координаты — метры, углы — градусы, скорости — м/с.
+    struct GroupSpec
+    {
+        const char *caption;
+        const char *unit;
+        int columns[3];
+        double thresholds[7];
+        int threshold_count;
+    };
+    static const GroupSpec specs[] = {
+        {"Координаты", "м",
+         {RunSeries::Lat, RunSeries::Lon, RunSeries::Alt},
+         {0.1, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0}, 7},
+        {"Углы", "°",
+         {RunSeries::Heading, RunSeries::Pitch, RunSeries::Roll},
+         {0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0}, 7},
+        {"Скорости", "м/с",
+         {RunSeries::Vn, RunSeries::Ve, RunSeries::Vh},
+         {0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 0.0}, 6},
+    };
+
+    for (const GroupSpec &spec : specs)
+    {
+        DeviationGroup group;
+        group.caption = QString::fromUtf8(spec.caption);
+        group.unit = QString::fromUtf8(spec.unit);
+        group.samples = static_cast<int>(row_idx.size());
+        for (int t = 0; t < spec.threshold_count; ++t)
+            group.thresholds.push_back(spec.thresholds[t]);
+
+        for (int column : spec.columns)
+        {
+            DeviationRow row;
+            row.name = QString::fromUtf8(quantityName(column));
+            row.counts.fill(0, group.thresholds.size());
+            for (int k = 0; k < row_idx.size(); ++k)
+            {
+                const double dev = deviationOf(series.rows[row_idx[k]], refs[k], column);
+                row.peak = std::max(row.peak, dev);
+                for (int t = 0; t < group.thresholds.size(); ++t)
+                {
+                    if (dev > group.thresholds[t]) ++row.counts[t];
+                }
+            }
+            group.rows.push_back(row);
+        }
+        groups.push_back(group);
+    }
+    return groups;
+}
+
 QString PdfReport::summarize(const RunSeries &series)
 {
     if (series.rows.empty()) return QObject::tr("Нет данных");
@@ -369,6 +577,28 @@ QString PdfReport::summarize(const RunSeries &series)
                      .arg(QString::fromUtf8(componentName(i)))
                      .arg(st.rms, 0, 'g', 4)
                      .arg(st.peak, 0, 'g', 4);
+    }
+
+    // Отклонения по величинам: та же таблица, что печатается в отчёте. В
+    // summarize() истина не передаётся, поэтому опора — эталон СНС.
+    for (const DeviationGroup &group : deviations(series, QVector<TruthSample>()))
+    {
+        if (group.samples == 0) continue;
+        QStringList thresholds;
+        for (double t : group.thresholds) thresholds << QString::number(t, 'g', 3);
+        lines << QStringLiteral("%1 (%2), точек %3, пороги %4")
+                     .arg(group.caption, group.unit)
+                     .arg(group.samples)
+                     .arg(thresholds.join(QLatin1Char(' ')));
+        for (const DeviationRow &row : group.rows)
+        {
+            QStringList counts;
+            for (int c : row.counts) counts << QString::number(c);
+            lines << QStringLiteral("%1: max |Δ| %2, выше порогов %3")
+                         .arg(row.name)
+                         .arg(row.peak, 0, 'g', 4)
+                         .arg(counts.join(QLatin1Char(' ')));
+        }
     }
     return lines.join(QLatin1Char('\n'));
 }
@@ -505,6 +735,26 @@ bool PdfReport::build(PlotView *plot, const RunSeries &series,
                          320.0);
             drawTableRow(writer, p, cursor, QObject::tr("Сопоставлено точек"),
                          QString::number(ts.count), 320.0);
+        }
+    }
+
+    // --- Отклонения по величинам ---
+    // Для каждой величины: максимум модуля отклонения и число точек, где
+    // отклонение превысило порог. Опора та же, что у ошибки выше: наземная
+    // истина, а при её отсутствии — эталон СНС (кадры коррекции).
+    const QVector<DeviationGroup> dev_groups = deviations(series, options.truth);
+    if (!dev_groups.isEmpty() && dev_groups.front().samples > 0)
+    {
+        drawHeading(writer, p, cursor,
+                    options.truth.isEmpty()
+                        ? QObject::tr("Отклонения от эталона СНС по величинам")
+                        : QObject::tr("Отклонения от истины по величинам"),
+                    13.0, 14.0);
+        drawTableRow(writer, p, cursor, QObject::tr("Точек сравнения"),
+                     QString::number(dev_groups.front().samples), 320.0);
+        for (const DeviationGroup &group : dev_groups)
+        {
+            if (group.samples > 0) drawDeviationGroup(writer, p, cursor, group);
         }
     }
 

@@ -314,24 +314,6 @@ int main(int argc, char *argv[])
             ok = false;
         }
 
-        // И сравнение прогонов: тот же прогон ставится вторым, проверяется, что
-        // ряды добавились на графики и разность считается по ненулевой сетке.
-        if (ok && run_id > 0)
-        {
-            const int cmp_rows = window.openCompareRun(run_id);
-            if (cmp_rows > 0 && window.hasComparison())
-            {
-                history_note += QString("; compare: второй прогон %1, строк %2")
-                                    .arg(run_id)
-                                    .arg(cmp_rows);
-            }
-            else
-            {
-                history_note += QString("; compare: не удалось");
-                ok = false;
-            }
-        }
-
         // Сводный PDF-отчёт: собираем во временный файл рядом с отчётом о
         // self-test и проверяем, что файл получился непустым и начинается с
         // сигнатуры PDF. Путь всегда свой, чтобы не затереть текстовый отчёт.
@@ -364,6 +346,26 @@ int main(int argc, char *argv[])
                                     .arg(report_error.isEmpty()
                                              ? QStringLiteral("сборка не удалась")
                                              : report_error);
+                ok = false;
+            }
+        }
+
+        // И сравнение прогонов: тот же прогон ставится вторым, проверяется, что
+        // ряды добавились на графики и разность считается по ненулевой сетке.
+        // Отчёт выше уже собран, поэтому сравнение в PDF не попадает — отчёт
+        // строится только по истине.
+        if (ok && run_id > 0)
+        {
+            const int cmp_rows = window.openCompareRun(run_id);
+            if (cmp_rows > 0 && window.hasComparison())
+            {
+                history_note += QString("; compare: второй прогон %1, строк %2")
+                                    .arg(run_id)
+                                    .arg(cmp_rows);
+            }
+            else
+            {
+                history_note += QString("; compare: не удалось");
                 ok = false;
             }
         }
