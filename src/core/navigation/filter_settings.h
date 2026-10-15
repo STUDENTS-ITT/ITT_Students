@@ -8,7 +8,7 @@
 //   [filter]
 //   sigma_g = 2.12428e-02
 //   [tilt]
-//   gyro_off_rad_s = 0.08
+//   gyro_off_rad_s = 0.005
 //   [run]
 //   align_time_s = 120
 

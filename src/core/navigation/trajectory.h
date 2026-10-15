@@ -127,7 +127,9 @@ inline AccelAttitude evalAccelAttitude(const Vector &f_body, const Vector &V_dot
                                        double lat, double alt, const Vector &gyro_raw)
 {
     const double ACC_TOLERANCE = 0.2;
-    const double GYRO_TOLERANCE = 0.08;
+    // Согласовано с TiltManeuverPolicy::gyro_off_rad_s: аксель годится как
+    // отсчёт тангажа/крена только когда гироскоп молчит.
+    const double GYRO_TOLERANCE = 0.005;
     const double SIG_TILT_MIN = 0.5 * DEG_TO_RAD;
     const double SIG_TILT_MAX = 5.0 * DEG_TO_RAD;
     const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;
