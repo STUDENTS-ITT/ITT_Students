@@ -40,3 +40,6 @@ __pycache__/
 /tools/kalman_tuner/temp_tune*/
 /tools/kalman_tuner/dbg_*/
 /tools/kalman_tuner/*.pyc
+
+# PDF-отчёты прогонов и подбора (в репозиторий не кладём; конвенция — reports/README.md)
+/reports/**/*.pdf
