@@ -85,22 +85,16 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 		double last_Ax = 0, last_Ay = 0, last_Az = 0;
 		double last_Wx = 0, last_Wy = 0, last_Wz = 0;
 
-		// Суммы для расчёта общего среднего
+		// Суммы отфильтрованных значений для расчёта общего среднего
 		double Ax_sm = 0, Ay_sm = 0, Az_sm = 0;
 		double Wx_sm = 0, Wy_sm = 0, Wz_sm = 0;
 		long total_samples = 0;
 
 
 		int is_first_block = 1; // Флаг первого блока для EMA фильтра
-		double SAMPLE_RATE = 200.0; // Частота измерений IMU (Гц)
+		double SAMPLE_RATE = 200.0; // Паспортная частота IMU (Гц), запасное значение
 		double CUTOFF_FREQ = 1.0; // Частота среза фильтра (Гц)
 		double alpha = calculate_alpha(CUTOFF_FREQ, SAMPLE_RATE);
-
-		// Переменные для рекурсивного накопления среднего значения углов
-		double final_yaw_mean = 0.0;
-		double final_pitch_mean = 0.0;
-		double final_roll_mean = 0.0;
-		long final_angles_count = 0;
 
 		double Time, Ax, Ay, Az, Wx, Wy, Wz;
 
@@ -121,6 +115,10 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 						{
 								if (count_ar > 0)
 								{
+										// Коэффициент EMA по фактической частоте потока на этом блоке
+										size_t k = time_arr.size();
+										alpha = calculate_alpha(CUTOFF_FREQ,estimate_sample_rate(time_arr, k - count_ar, count_ar, SAMPLE_RATE));
+
 										// Обработка хвоста данных (остатка буфера, не заполнившего полный размер BUF_rot)
 										FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
 										EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
@@ -136,12 +134,19 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										FastMedian(Wz_blc, Wz_aver_arr_temp, count_ar);
 										EMA_Filter(Wz_aver_arr_temp, Wz_aver_arr, alpha, count_ar, &last_Wz, is_first_block);
 
-										size_t k = time_arr.size();
 										for (size_t i = 0; i < count_ar; i++)
 										{
 												size_t global_index = k - count_ar + i;
 
-												// Расчёт глобальных средних значений ускорений и угловых скоростей
+												// Средние считаем по отфильтрованным данным (медиана + EMA)
+												Ax_sm += Ax_aver_arr[i];
+												Ay_sm += Ay_aver_arr[i];
+												Az_sm += Az_aver_arr[i];
+												Wx_sm += Wx_aver_arr[i];
+												Wy_sm += Wy_aver_arr[i];
+												Wz_sm += Wz_aver_arr[i];
+												total_samples++;
+
 												double Ax_mean = Ax_sm / total_samples;
 												double Ay_mean = Ay_sm / total_samples;
 												double Az_mean = Az_sm / total_samples;
@@ -150,18 +155,10 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 												double Wy_mean = Wy_sm / total_samples;
 												double Wz_mean = Wz_sm / total_samples;
 
-												// Вычисление сглаженных углов (тангаж и крен по акселерометру)
-												double ax_norm_sm = Ax_mean / g;
-												if (ax_norm_sm > 1.0) ax_norm_sm = 1.0;
-												if (ax_norm_sm < -1.0) ax_norm_sm = -1.0;
-
-												double pitch_smooth = asin(ax_norm_sm);
-												double roll_smooth = atan2(-Az_mean, Ay_mean);
-
-												// Проекции угловой скорости Земли для расчёта курса (Yaw)
-												double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
-												double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
-												double yaw_smooth = atan2(-We_sm, Wn_sm);
+												// Углы по средним на текущий момент — кривая сходимости выставки
+												double yaw_smooth = 0, pitch_smooth = 0, roll_smooth = 0;
+												angles_from_means(Ax_mean, Ay_mean, Az_mean, Wx_mean, Wy_mean, Wz_mean, g,
+																					yaw_smooth, pitch_smooth, roll_smooth);
 
 												// Сырые углы
 												double raw_ax_norm = Ax_arr[global_index] / g;
@@ -174,12 +171,6 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 												double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
 												double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
 												double raw_yaw = atan2(-raw_We, raw_Wn);
-
-												// Рекурсивное обновление среднего углов
-												final_angles_count++;
-												update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
-												update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
-												update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
 
 												char line_buf[512];
 												snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
@@ -198,17 +189,6 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 						Wy_arr.push_back(Wy);
 						Wz_arr.push_back(Wz);
 
-						// Накопление сумм для расчёта средних значений
-						Ax_sm += Ax;
-						Ay_sm += Ay;
-						Az_sm += Az;
-
-						Wx_sm += Wx;
-						Wy_sm += Wy;
-						Wz_sm += Wz;
-
-						total_samples++;
-
 						// Заполнение блоков для медианной фильтрации
 						if (count_ar < BUF_rot)
 						{
@@ -225,6 +205,10 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 						// Если буфер заполнен полностью, производим его фильтрацию и расчёт
 						if (count_ar == BUF_rot)
 						{
+								// Коэффициент EMA по фактической частоте потока на этом блоке
+								size_t k = time_arr.size();
+								alpha = calculate_alpha(CUTOFF_FREQ,estimate_sample_rate(time_arr, k - count_ar, count_ar, SAMPLE_RATE));
+
 								FastMedian(Ax_blc, Ax_aver_arr_temp, count_ar);
 								EMA_Filter(Ax_aver_arr_temp, Ax_aver_arr, alpha, count_ar, &last_Ax, is_first_block);
 								FastMedian(Ay_blc, Ay_aver_arr_temp, count_ar);
@@ -241,10 +225,18 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 
 								is_first_block = 0;
 
-								size_t k = time_arr.size();
 								for (size_t i = 0; i < BUF_rot; i++)
 								{
 										size_t global_index = k - BUF_rot + i;
+
+										// Средние считаем по отфильтрованным данным (медиана + EMA)
+										Ax_sm += Ax_aver_arr[i];
+										Ay_sm += Ay_aver_arr[i];
+										Az_sm += Az_aver_arr[i];
+										Wx_sm += Wx_aver_arr[i];
+										Wy_sm += Wy_aver_arr[i];
+										Wz_sm += Wz_aver_arr[i];
+										total_samples++;
 
 										double Ax_mean = Ax_sm / total_samples;
 										double Ay_mean = Ay_sm / total_samples;
@@ -254,16 +246,10 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double Wy_mean = Wy_sm / total_samples;
 										double Wz_mean = Wz_sm / total_samples;
 
-										double ax_norm_sm = Ax_mean / g;
-										if (ax_norm_sm > 1.0) ax_norm_sm = 1.0;
-										if (ax_norm_sm < -1.0) ax_norm_sm = -1.0;
-
-										double pitch_smooth = asin(ax_norm_sm);
-										double roll_smooth = atan2(-Az_mean, Ay_mean);
-
-										double Wn_sm = Wx_mean * cos(pitch_smooth) - Wy_mean * sin(pitch_smooth) * cos(roll_smooth) + Wz_mean * sin(pitch_smooth) * sin(roll_smooth);
-										double We_sm = Wy_mean * sin(roll_smooth) + Wz_mean * cos(roll_smooth);
-										double yaw_smooth = atan2(-We_sm, Wn_sm);
+										// Углы по средним на текущий момент — кривая сходимости выставки
+										double yaw_smooth = 0, pitch_smooth = 0, roll_smooth = 0;
+										angles_from_means(Ax_mean, Ay_mean, Az_mean, Wx_mean, Wy_mean, Wz_mean, g,
+																			yaw_smooth, pitch_smooth, roll_smooth);
 
 										double raw_ax_norm = Ax_arr[global_index] / g;
 										if (raw_ax_norm > 1.0) raw_ax_norm = 1.0;
@@ -275,11 +261,6 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 										double raw_Wn = Wx_arr[global_index] * cos(pitch_smooth) - Wy_arr[global_index] * sin(pitch_smooth) * cos(roll_smooth) + Wz_arr[global_index] * sin(pitch_smooth) * sin(roll_smooth);
 										double raw_We = Wy_arr[global_index] * sin(roll_smooth) + Wz_arr[global_index] * cos(roll_smooth);
 										double raw_yaw = atan2(-raw_We, raw_Wn);
-
-										final_angles_count++;
-										update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
-										update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
-										update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
 
 										char line_buf[512];
 										snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
@@ -293,10 +274,21 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 		file_imu.close();
 		graphfile.close();
 
-		// Записываем накопленные средние значения в выходные параметры
-		*Yaw = final_yaw_mean;
-		*Pitch = final_pitch_mean;
-		*Roll = final_roll_mean;
+		// Итоговые углы — по средним отфильтрованных данных за весь интервал выставки.
+		// Осреднять промежуточные оценки нельзя: они сами считаются по нарастающему
+		// среднему и тянут результат к первым, ещё не сошедшимся значениям.
+		double yaw_final = 0.0, pitch_final = 0.0, roll_final = 0.0;
+
+		if (total_samples > 0)
+		{
+				angles_from_means(Ax_sm / total_samples, Ay_sm / total_samples, Az_sm / total_samples,
+													Wx_sm / total_samples, Wy_sm / total_samples, Wz_sm / total_samples,
+													g, yaw_final, pitch_final, roll_final);
+		}
+
+		*Yaw = yaw_final;
+		*Pitch = pitch_final;
+		*Roll = roll_final;
 
 		// Смещение акселерометра: f_mean − C^T·[0, g, 0] при покое.
 		if (ba_x != nullptr && ba_y != nullptr && ba_z != nullptr && total_samples > 0)
@@ -305,7 +297,7 @@ void get_angle_start(double *Yaw, double *Pitch, double *Roll,
 				const double ay_mean = Ay_sm / total_samples;
 				const double az_mean = Az_sm / total_samples;
 
-				const Matrix C = bodyToNavMatrix(final_yaw_mean, final_pitch_mean, final_roll_mean);
+				const Matrix C = bodyToNavMatrix(yaw_final, pitch_final, roll_final);
 				const Vector g_nav = {0.0, g, 0.0};
 				const Vector f_expected = navToBody(C, g_nav);
 

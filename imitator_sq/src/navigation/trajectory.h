@@ -78,16 +78,17 @@ struct NavState
     TiltTrimState tilt_trim;
 };
 
-// Курс эталона для сравнения с БИНС: yaw плюс 16°.
-// Ветвь ±180° снимается раньше, в repairEulerReference. Повторно вычитать 180°
-// у углов больше 90° нельзя: на востоке yaw + 16° около +102° — это сам курс.
+// Курс эталона для фильтра: yaw из angle.dat без сдвига, только приведение к ±180°.
+// Ветвь ±180° снимается раньше, в repairEulerReference, повторно её трогать нельзя.
 inline double snsHeadingFromYaw(double yaw)
 {
-    return normalize_angle(yaw + 16.0 * DEG_TO_RAD);
+    return normalize_angle(yaw);
 }
 
 // Одна строка выходного файла: решение БИНС, эталон СНС.
-inline data_io::NavRecord makeRecord(double time, const NavState &st, const SnsSample &ref)
+// yaw_ref_raw — курс из angle.dat как есть, без подстановки курса трека и без свёртки ветви.
+inline data_io::NavRecord makeRecord(double time, const NavState &st, const SnsSample &ref,
+                                     double yaw_ref_raw)
 {
     data_io::NavRecord r;
     r.time = time;
@@ -123,14 +124,14 @@ inline data_io::NavRecord makeRecord(double time, const NavState &st, const SnsS
     r.dVn_ins = st.V_ins[0] - ref.vn;
     r.dVh_ins = st.V_ins[1] - ref.vh;
     r.dVe_ins = st.V_ins[2] - ref.ve;
-    r.dhdg_ins = normalize_angle(st.att_ins.heading - snsHeadingFromYaw(ref.heading)) * RAD_TO_DEG;
+    r.dhdg_ins = normalize_angle(st.att_ins.heading - yaw_ref_raw) * RAD_TO_DEG;
     r.dpitch_ins = normalize_angle(st.att_ins.pitch - ref.pitch) * RAD_TO_DEG;
     r.droll_ins = normalize_angle(st.att_ins.roll - ref.roll) * RAD_TO_DEG;
 
     r.lon_sns = ref.lon * RAD_TO_DEG;
     r.lat_sns = ref.lat * RAD_TO_DEG;
     r.alt_sns = ref.alt;
-    r.heading_sns = snsHeadingFromYaw(ref.heading) * RAD_TO_DEG;
+    r.heading_sns = yaw_ref_raw * RAD_TO_DEG;
     r.pitch_sns = ref.pitch * RAD_TO_DEG;
     r.roll_sns = ref.roll * RAD_TO_DEG;
     r.vn_sns = ref.vn;
@@ -424,8 +425,8 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         // Координаты и скорости — из СНС. Pitch/roll из angle.dat в фильтр
         // не измеряем: их держит акселерометр. В файл пишется уже свёрнутая ветвь.
         // Курс измеряется только на прямом участке и только если yaw после
-        // выбора ветви совпадает с atan2(Ve, Vn). В фильтр подаётся тот же угол,
-        // что в heading_sns: yaw + 16°. На манёвре курс остаётся гироскопу.
+        // выбора ветви совпадает с atan2(Ve, Vn). В фильтр подаётся yaw без
+        // сдвига. На манёвре курс остаётся гироскопу.
         const bool use_heading = !maneuver && headingReferenceUsable(ang, has_heading_ref);
         const double heading_meas = use_heading ? snsHeadingFromYaw(ang.heading) : st.att.heading;
         const double x_heading_pred = st.x[6];
@@ -448,7 +449,8 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         applyKalmanCorrections(st);
     }
 
-    log.write(makeRecord(time_s, st, referenceForLog(ang, has_heading_ref)), x_out, st.lat);
+    log.write(makeRecord(time_s, st, referenceForLog(ang, has_heading_ref), ref.heading),
+              x_out, st.lat);
 }
 
 } // namespace nav

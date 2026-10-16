@@ -92,6 +92,25 @@ inline double calculate_alpha(double cutoff_freq, double sample_rate)
 }
 
 /**
+ * @brief Оценка фактической частоты дискретизации по меткам времени блока.
+ * Поток imu.dat неравномерный, поэтому частоту берём из самих данных.
+ * @param time_arr Массив меток времени.
+ * @param first Индекс первого отсчёта блока.
+ * @param count Число отсчётов в блоке.
+ * @param fallback Значение, возвращаемое при непригодных метках времени.
+ * @return Частота дискретизации в Гц.
+ */
+inline double estimate_sample_rate(const std::vector<double>& time_arr, size_t first, size_t count, double fallback)
+{
+		if (count < 2 || first + count > time_arr.size()) return fallback;
+
+		double span = time_arr[first + count - 1] - time_arr[first];
+		if (span <= 0.0) return fallback;
+
+		return static_cast<double>(count - 1) / span;
+}
+
+/**
  * @brief Функция экспоненциального сглаживания (EMA) с поддержкой блочной обработки.
  * @param input Входной массив.
  * @param output Выходной отфильтрованный массив.
@@ -129,6 +148,33 @@ inline void EMA_Filter(const std::vector<double>& input, std::vector<double>& ou
 
 		// Сохраняем последнее значение для следующего блока
 		*last_val = output[n - 1];
+}
+
+/**
+ * @brief Расчёт углов ориентации по осреднённым показаниям акселей и ДУС.
+ * Тангаж и крен — по проекциям g, курс — гирокомпасированием по проекциям
+ * угловой скорости Земли. Курс отсчитывается от севера по часовой стрелке.
+ * @param g Ускорение свободного падения в точке стоянки.
+ * @[out] yaw Курс в радианах.
+ * @[out] pitch Тангаж в радианах.
+ * @[out] roll Крен в радианах.
+ */
+inline void angles_from_means(double Ax_mean, double Ay_mean, double Az_mean,
+                              double Wx_mean, double Wy_mean, double Wz_mean,
+                              double g, double& yaw, double& pitch, double& roll)
+{
+		double ax_norm = Ax_mean / g;
+		if (ax_norm > 1.0) ax_norm = 1.0;
+		if (ax_norm < -1.0) ax_norm = -1.0;
+
+		pitch = asin(ax_norm);
+		roll = atan2(-Az_mean, Ay_mean);
+		//yaw = atan2(-Wz_mean, Wx_mean);
+		// Проекции угловой скорости Земли на горизонт
+		double Wn = Wx_mean * cos(pitch) - Wy_mean * sin(pitch) * cos(roll) + Wz_mean * sin(pitch) * sin(roll);
+		double We = Wy_mean * sin(roll) + Wz_mean * cos(roll);
+
+		yaw = atan2(-We, Wn);
 }
 
 /**
