@@ -34,6 +34,12 @@ std::vector<FieldBinding> filterBindings(ins::KalmanConfig &c)
         {"filter/sigma_hdg", &c.sig_hdg},
         {"filter/outage_start_s", &c.outage_start_s},
         {"filter/outage_end_s", &c.outage_end_s},
+        // Защита СНС (уровни 1-2, docs/gnss_guard_design.md).
+        {"filter/gnss_guard_on", &c.gnss_guard_on},
+        {"filter/gnss_vel_plaus", &c.gnss_vel_plaus},
+        {"filter/gnss_acc_bound", &c.gnss_acc_bound},
+        {"filter/gnss_silence_timeout_s", &c.gnss_silence_timeout_s},
+        {"filter/gnss_guard_log", &c.gnss_guard_log},
     };
 }
 
@@ -166,6 +172,12 @@ void applyLegacyParamsFile(const std::string &path, std::ostream *log)
         {"sigma_ang", &ins::kalman_cfg.sig_hdg},
         {"outage_start_s", &ins::kalman_cfg.outage_start_s},
         {"outage_end_s", &ins::kalman_cfg.outage_end_s},
+        // Защита СНС (уровни 1-2, docs/gnss_guard_design.md).
+        {"gnss_guard_on", &ins::kalman_cfg.gnss_guard_on},
+        {"gnss_vel_plaus", &ins::kalman_cfg.gnss_vel_plaus},
+        {"gnss_acc_bound", &ins::kalman_cfg.gnss_acc_bound},
+        {"gnss_silence_timeout_s", &ins::kalman_cfg.gnss_silence_timeout_s},
+        {"gnss_guard_log", &ins::kalman_cfg.gnss_guard_log},
     };
 
     std::string line;
@@ -270,6 +282,13 @@ std::vector<SettingDescriptor> filterSettingDescriptors()
     add("filter/sigma_hdg", "Шум курса СНС", "рад", 0.0, 1.0);
     add("filter/outage_start_s", "Начало окна без СНС", "с", 0.0, 1e5);
     add("filter/outage_end_s", "Конец окна без СНС", "с", 0.0, 1e5);
+
+    // Защита СНС (уровни 1-2, docs/gnss_guard_design.md).
+    add("filter/gnss_guard_on", "Защита СНС: уровни 1-2 (вкл.)", "0/1", 0.0, 1.0);
+    add("filter/gnss_vel_plaus", "Защита СНС: предел скорости", "м/с", 1.0, 300.0);
+    add("filter/gnss_acc_bound", "Защита СНС: допуск кинематики", "м", 0.0, 200.0);
+    add("filter/gnss_silence_timeout_s", "Защита СНС: таймаут молчания", "с", 0.1, 10.0);
+    add("filter/gnss_guard_log", "Защита СНС: писать лог", "0/1", 0.0, 1.0);
 
     add("tilt/gyro_off_rad_s", "Порог гироскопа для tilt-режима", "рад/с", 0.0, 1.0);
     add("tilt/settle_s", "Время успокоения после манёвра", "с", 0.0, 10.0);

@@ -57,6 +57,11 @@ public:
         if (file_ != nullptr) file_->writeErrors(time, x);
     }
 
+    void writeGuard(const data_io::SnsGuardRecord &r) override
+    {
+        if (file_ != nullptr) file_->writeGuard(r);
+    }
+
     void close() override
     {
         if (file_ != nullptr) file_->close();

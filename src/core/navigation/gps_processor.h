@@ -4,6 +4,9 @@
 // measurement() — упаковка в вектор из 9 компонент для фильтра Калмана
 // (порядок: lat, lon, alt, vn, vh, ve, heading, pitch, roll).
 // maxSpeed() — модуль максимальной скорости (для определения начала движения).
+//
+// SnsStatus/SnsReject — статус отсчёта и причина отклонения; их вычисляет
+// защита СНС (gnss_guard.h, уровни 1-2).
 
 #pragma once
 
@@ -13,6 +16,59 @@
 
 namespace nav
 {
+
+// Статус отсчёта СНС (docs/gnss_guard_design.md, раздел 4, А).
+// Свойство конкретного кадра, а не пары «кадр ↔ состояние фильтра»:
+// булева признака недостаточно, чтобы отличить «СНС молчит» от «СНС
+// отвечает мусором» — это разные отказы с разной реакцией.
+enum class SnsStatus
+{
+    VALID = 0,    // самодостаточные проверки пройдены
+    INVALID = 1,  // данные есть, но кадр непригоден
+    STALE = 2     // корректных отсчётов нет дольше таймаута
+};
+
+// Причина отклонения кадра на уровне 1 (для лога и разбора).
+enum class SnsReject
+{
+    NONE = 0,
+    NONFINITE,   // нечисловое значение
+    RANGE,       // |lat| > 90° или |lon| > 180°
+    ZERO_FIX,    // координаты нулевые («нет решения»)
+    SPEED,       // недостижимая скорость
+    ALTITUDE,    // выход из полосы высоты
+    KINEMATICS,  // расхождение с последним принятым фиксом
+    TIME         // немонотонное или слишком большое dt
+};
+
+// Имя статуса для лога.
+inline const char *snsStatusName(SnsStatus s)
+{
+    switch (s)
+    {
+    case SnsStatus::VALID: return "VALID";
+    case SnsStatus::INVALID: return "INVALID";
+    case SnsStatus::STALE: return "STALE";
+    }
+    return "?";
+}
+
+// Имя причины отклонения для лога.
+inline const char *snsRejectName(SnsReject r)
+{
+    switch (r)
+    {
+    case SnsReject::NONE: return "-";
+    case SnsReject::NONFINITE: return "nonfinite";
+    case SnsReject::RANGE: return "range";
+    case SnsReject::ZERO_FIX: return "zero_fix";
+    case SnsReject::SPEED: return "speed";
+    case SnsReject::ALTITUDE: return "altitude";
+    case SnsReject::KINEMATICS: return "kinematics";
+    case SnsReject::TIME: return "time";
+    }
+    return "?";
+}
 
 // Один отсчёт эталона СНС.
 struct SnsSample

@@ -19,6 +19,7 @@ set(ITT_TESTS
     test_settings
     test_simulation
     test_dataset_generator
+    test_gnss_guard
 )
 
 foreach(test_name IN LISTS ITT_TESTS)
@@ -30,7 +31,7 @@ foreach(test_name IN LISTS ITT_TESTS)
     )
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1")
     # Qt и рантайм MinGW лежат вне каталога сборки — добавляем их в PATH теста.
     # Две отдельные операции, чтобы не вставлять ';' внутрь значения.
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
@@ -66,7 +67,7 @@ target_include_directories(test_plots PRIVATE
 )
 add_test(NAME test_plots COMMAND test_plots)
 set_tests_properties(test_plots PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 120)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_plots PROPERTIES ENVIRONMENT_MODIFICATION
@@ -88,7 +89,7 @@ target_include_directories(test_run_store PRIVATE
 )
 add_test(NAME test_run_store COMMAND test_run_store)
 set_tests_properties(test_run_store PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_run_store PROPERTIES ENVIRONMENT_MODIFICATION
@@ -112,7 +113,7 @@ target_include_directories(test_pdf_report PRIVATE
 )
 add_test(NAME test_pdf_report COMMAND test_pdf_report)
 set_tests_properties(test_pdf_report PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_pdf_report PROPERTIES ENVIRONMENT_MODIFICATION
@@ -138,7 +139,7 @@ target_include_directories(test_tuning_report PRIVATE
 )
 add_test(NAME test_tuning_report COMMAND test_tuning_report)
 set_tests_properties(test_tuning_report PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_tuning_report PROPERTIES ENVIRONMENT_MODIFICATION
@@ -160,7 +161,7 @@ target_include_directories(test_matrices_exporter PRIVATE
 )
 add_test(NAME test_matrices_exporter COMMAND test_matrices_exporter)
 set_tests_properties(test_matrices_exporter PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_matrices_exporter PROPERTIES ENVIRONMENT_MODIFICATION
@@ -182,7 +183,7 @@ target_include_directories(test_app_settings PRIVATE
 )
 add_test(NAME test_app_settings COMMAND test_app_settings)
 set_tests_properties(test_app_settings PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_app_settings PROPERTIES ENVIRONMENT_MODIFICATION
@@ -203,7 +204,7 @@ target_include_directories(test_dataset_truth PRIVATE
 )
 add_test(NAME test_dataset_truth COMMAND test_dataset_truth)
 set_tests_properties(test_dataset_truth PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_dataset_truth PROPERTIES ENVIRONMENT_MODIFICATION
@@ -224,7 +225,7 @@ target_include_directories(test_preset_meta PRIVATE
 )
 add_test(NAME test_preset_meta COMMAND test_preset_meta)
 set_tests_properties(test_preset_meta PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
     TIMEOUT 60)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     set_tests_properties(test_preset_meta PROPERTIES ENVIRONMENT_MODIFICATION
@@ -250,7 +251,7 @@ if(EXISTS "${ITT_PARITY_DATA_DIR}/imu.dat")
     )
     add_test(NAME test_parity COMMAND test_parity)
     set_tests_properties(test_parity PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
         TIMEOUT 600)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
         set_tests_properties(test_parity PROPERTIES ENVIRONMENT_MODIFICATION

@@ -42,6 +42,14 @@ struct KalmanConfig
     double sig_hdg = 1.23106e-03;           // СНС курс, рад (run_hk №6)
     double outage_start_s = 0.0;             // начало окна без коррекций СНС, с
     double outage_end_s = 0.0;               // конец окна без коррекций СНС, с (0 — выкл)
+
+    // Защита СНС, уровни 1-2 (docs/gnss_guard_design.md, раздел 7).
+    // Все параметры double: таблица привязок принимает только double.
+    double gnss_guard_on = 1.0;              // 1 — защита включена
+    double gnss_vel_plaus = 60.0;            // предел скорости для правдоподобия, м/с
+    double gnss_acc_bound = 50.0;            // допуск кинематической проверки, м
+    double gnss_silence_timeout_s = 0.5;     // порог молчания СНС, с
+    double gnss_guard_log = 1.0;             // 1 — писать лог решений защиты
 };
 
 // Глобальная (настраиваемая) конфигурация шумов.

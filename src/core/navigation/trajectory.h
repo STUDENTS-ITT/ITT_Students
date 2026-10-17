@@ -17,6 +17,7 @@
 #include "../math_lib/transformations.h"
 #include "../utils/constants.h"
 #include "../utils/types.h"
+#include "gnss_guard.h"
 #include "gps_processor.h"
 #include "maneuver_tilt.h"
 #include "position_calc.h"
@@ -47,6 +48,10 @@ struct NavState
     // Смещения датчиков (корректируются фильтром Калмана).
     Vector ba = Vector(3, 0.0);  // смещение акселерометра
     Vector bg = Vector(3, 0.0);  // смещение гироскопа
+
+    // Защита СНС (уровни 1-2, docs/gnss_guard_design.md). Хранит
+    // последний принятый отсчёт, счётчики и статус текущего кадра.
+    SnsGuard sns_guard;
 
     // 15-компонентный вектор ошибок и ковариационная матрица фильтра Калмана.
     Vector x = Vector(ins::KF_STATE, 0.0);
@@ -315,8 +320,15 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     else
         clearTiltKalmanErrors(st.x);
 
-    // Коррекция по СНС (1 Гц, только когда gps обновился).
-    if (do_correction)
+    // Защита СНС (уровни 1-2, docs/gnss_guard_design.md): самодостаточная
+    // валидация отсчёта и детектор молчания. Наблюдение ведётся на каждом
+    // такте, независимо от того, разрешена ли коррекция (принцип 3, черновик).
+    const bool sns_ok = st.sns_guard.update(ref, time_s, ins::kalman_cfg);
+    const bool manual = st.sns_guard.is_new_frame && !do_correction;
+    const bool apply_correction = do_correction && sns_ok;
+
+    // Коррекция по СНС (1 Гц, только при условии, что кадр допустим защитой).
+    if (apply_correction)
     {
         const Vector bins = {st.lat, st.lon, st.alt,
                              st.V[0], st.V[1], st.V[2],
@@ -355,6 +367,25 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         sink.writeErrors(time_s, st.x);
         applyKalmanCorrections(st);
         sink.writeReference(makeReference(time_s, ref));
+    }
+
+    // Лог защиты СНС (уровни 1-2). Записывается даже если коррекция не
+    // применена — соблюдаем наблюдаемость (принцип 3, черновик).
+    if (ins::kalman_cfg.gnss_guard_log > 0.5)
+    {
+        data_io::SnsGuardRecord grecord;
+        grecord.time = time_s;
+        grecord.status = st.sns_guard.status;
+        grecord.reject = st.sns_guard.reject;
+        grecord.new_frame = st.sns_guard.is_new_frame;
+        grecord.applied = apply_correction;
+        grecord.manual = manual;
+        grecord.dt = st.sns_guard.last_dt;
+        grecord.dpos = st.sns_guard.last_dpos;
+        grecord.dvel = st.sns_guard.last_dvel;
+        grecord.accepted = st.sns_guard.accepted_frames;
+        grecord.rejected = st.sns_guard.rejected_frames;
+        sink.writeGuard(grecord);
     }
 
     // Запись результата на каждом такте (200 Гц).
