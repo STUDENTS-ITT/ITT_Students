@@ -232,6 +232,28 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
 endif()
 
+# Перечень конфигов подбора во вкладке «Подбор» (tuner_config*.json +
+# truth_cfg*/cfg_*.json) — код Qt-слоя, собираем исходник напрямую
+# (как test_preset_meta).
+qt_add_executable(test_tuner_configs
+    test_tuner_configs.cpp
+    ${CMAKE_SOURCE_DIR}/src/gui/settings/tuner_configs.cpp
+)
+target_link_libraries(test_tuner_configs PRIVATE Qt6::Test Qt6::Core)
+target_include_directories(test_tuner_configs PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME test_tuner_configs COMMAND test_tuner_configs)
+set_tests_properties(test_tuner_configs PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1"
+    TIMEOUT 60)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    set_tests_properties(test_tuner_configs PROPERTIES ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;PATH=path_list_prepend:${ITT_TOOLCHAIN_BIN}")
+endif()
+
 # Паритет консоль vs GUI (этап 6 плана): test_parity.cpp запускает imitator и
 # imitator_gui на одних данных с одним явным settings.ini и сверяет бит-в-бит
 # result.txt/reference.txt/errors.txt (ими пользуются тюнер и GUI-графики).

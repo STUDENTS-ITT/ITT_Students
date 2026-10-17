@@ -28,6 +28,7 @@
 
 #include "settings/app_settings.h"
 #include "settings/dataset_truth.h"
+#include "settings/tuner_configs.h"
 
 namespace gui
 {
@@ -111,7 +112,8 @@ TuningPanel::TuningPanel(QWidget *parent) : QWidget(parent)
     config_combo_ = new QComboBox;
     config_combo_->setToolTip(
         tr("Набор параметров подбора: tuner_config*.json рядом со скриптом "
-           "(у наборов dataset_shum свой конфиг, например tuner_config.static300.json)"));
+           "(у наборов dataset_shum свой конфиг, например tuner_config.static300.json) "
+           "и конфиги экспериментов с истиной truth_cfg*/cfg_*.json (13A/13B/13G)"));
     config_row->addWidget(config_combo_, 1);
     root->addLayout(config_row);
 
@@ -172,7 +174,8 @@ TuningPanel::TuningPanel(QWidget *parent) : QWidget(parent)
     auto *hint = new QLabel(
         tr("Подбор выполняет tools/kalman_tuner/tune_kalman.py в фоне и занимает время "
            "(полный режим — десятки минут; быстрый/глобальная сетка — заметно меньше). "
-           "Параметры поиска берутся из выбранного конфига tuner_config*.json, "
+           "Параметры поиска берутся из выбранного конфига (tuner_config*.json "
+           "или truth_cfg*/cfg_*.json), "
            "готовый пресет записывается в presets/."));
     hint->setWordWrap(true);
     root->addWidget(hint);
@@ -221,7 +224,8 @@ QString TuningPanel::currentConfigPath() const
     return config_combo_->currentData().toString();
 }
 
-// Заполнить список конфигов подбора (tuner_config*.json рядом со скриптом).
+// Заполнить список конфигов подбора (tuner_config*.json и truth_cfg*/cfg_*.json
+// рядом со скриптом).
 void TuningPanel::rebuildConfigCombo()
 {
     if (config_combo_ == nullptr) return;
@@ -234,17 +238,15 @@ void TuningPanel::rebuildConfigCombo()
     if (!dir.isEmpty())
     {
         const QDir d(dir);
-        const QStringList files =
-            d.entryList({QStringLiteral("tuner_config*.json")}, QDir::Files, QDir::Name);
-        for (const QString &name : files)
+        const QStringList configs = listTunerConfigs(dir);
+        for (const QString &rel : configs)
         {
-            if (name.contains(QLatin1String("smoke"), Qt::CaseInsensitive)) continue;
-            const QString path = d.filePath(name);
+            const QString path = d.filePath(rel);
             // Подписью показываем набор данных из конфига, если он читается.
-            QString label = name;
+            QString label = rel;
             const QString data_dir = dataDirFromConfig(path);
             if (!data_dir.isEmpty())
-                label = QStringLiteral("%1  ·  %2").arg(QDir(data_dir).dirName(), name);
+                label = QStringLiteral("%1  ·  %2").arg(QDir(data_dir).dirName(), rel);
             config_combo_->addItem(label, path);
         }
     }
@@ -332,7 +334,8 @@ void TuningPanel::startTuning()
     const QString config = currentConfigPath();
     if (config.isEmpty())
     {
-        appendLog(tr("Ошибка: не найден конфиг подбора (tuner_config*.json) рядом со скриптом."));
+        appendLog(tr("Ошибка: не найден конфиг подбора (tuner_config*.json / "
+                     "truth_cfg*/cfg_*.json) рядом со скриптом."));
         Q_EMIT logMessage(tr("Подбор: не найден конфиг подбора"), 2);
         return;
     }

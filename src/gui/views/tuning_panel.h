@@ -40,7 +40,8 @@ public:
 
     bool isRunning() const;
 
-    // Путь к выбранному конфигу подбора (tuner_config*.json), "" — нет.
+    // Путь к выбранному конфигу подбора (tuner_config*.json или
+    // truth_cfg*/cfg_*.json), "" — нет.
     QString currentConfigPath() const;
 
 public Q_SLOTS:
@@ -77,7 +78,8 @@ private:
     void appendLog(const QString &text);
     void setRunning(bool running);
     QString scriptPath() const;
-    // Заполнить список конфигов подбора (tuner_config*.json) рядом со скриптом.
+    // Заполнить список конфигов подбора (tuner_config*.json и
+    // truth_cfg*/cfg_*.json) рядом со скриптом.
     void rebuildConfigCombo();
 
     QLineEdit *data_dir_edit_ = nullptr;
