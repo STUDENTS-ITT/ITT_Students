@@ -111,12 +111,13 @@ ITT_Students_Qt_Version/
 ├── tests/
 ├── tools/            # kalman_tuner/, plot_*.py, check_no_qt_in_core.cmake
 ├── presets/          # tuned*.ini
+├── Theory_of_Work/   # документация: user/, algorithm/, theory/
 ├── docs/
 ├── dist/             # генерируется
 ├── build/            # игнорируется
 ├── CMakeLists.txt
-├── USER_GUIDE.md
 ├── DEVELOPER_GUIDE.md
+├── PROJECT_MAP.md
 └── AGENTS.md
 ```
 
@@ -151,7 +152,7 @@ Self-test проверяет `%PDF`. Deploy формирует `dist/` (`windepl
 core только STL/C++17, без Qt (`core_has_no_qt`). Сохранять ESKF и матричные конвенции. Графика только `QPainter`. После правок — `ctest`. `build/`, `dist/` не коммитить.
 
 ## 15. Git и релиз
-Ветка Anton. `dist/` не в git, распространяется ZIP в GitHub Releases (v1.0-qt-gui). При требовании хранить пакет в git — упаковать `dist/*` в `imitator_gui_portable.zip` и закоммитить в Anton.
+Ветка Anton. `dist/` не в git; portable-пакет распространяется ZIP в GitHub Releases (`v1.0-qt-gui`, ассет `imitator_gui_portable.zip`). Ранее отслеживаемый `imitator_gui_portable.zip` выведен из git (`git rm --cached`, 2026-10-17): файл остаётся на диске и покрыт `.gitignore` (`*.zip`). Пакет собирается из `dist/*` (через `System.IO.Compression`, с прямыми слэшами) и публикуется в Releases, а не коммитится.
 
 ## 16. Отладка
 `invalidateCache()` при сбое кэша; проверка series/sync_markers в PDF; `mapToSource()` в истории; `cwd` при расхождении с консолью; убрать `#include <Q...>`, если падает `core_has_no_qt`.

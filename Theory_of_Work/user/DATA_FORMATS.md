@@ -173,15 +173,18 @@ ITT_Students_Qt_Version/
 ├── data/
 │   ├── raw/                         # Входные данные
 │   └── processed/                   # Промежуточные результаты
-├── docs/                            # Документация (в т.ч. user_manual/)
+├── Theory_of_Work/                  # Документация: руководства пользователя, алгоритм, теория
+│   ├── user/                        # Руководства пользователя
+│   ├── algorithm/                   # Руководство по алгоритму
+│   └── theory/                      # Теоретическая справка
+├── docs/                            # Проектная документация
 ├── dist/                            # Портативная сборка (генерируется)
 ├── CMakeLists.txt
-├── USER_GUIDE.md
 └── README.md
 ```
 
-Руководство пользователя — `USER_GUIDE.md`; подробная навигация по интерфейсу —
-`docs/user_manual/NAVIGATION.md` (копия также в `dist/`).
+Руководство пользователя — `Theory_of_Work/user/USER_GUIDE.md`; подробная навигация по
+интерфейсу — `Theory_of_Work/user/NAVIGATION.md`.
 
 ## Сборка и запуск
 
