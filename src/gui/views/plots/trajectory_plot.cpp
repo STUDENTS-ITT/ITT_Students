@@ -14,7 +14,6 @@ namespace gui
 namespace
 {
 const QColor kNavColor(31, 119, 180);
-const QColor kRefColor(214, 39, 40);
 const QColor kTruthColor(0, 150, 60);
 } // namespace
 
@@ -49,20 +48,6 @@ void TrajectoryPlot::appendNavPoint(double east_m, double north_m)
     update();
 }
 
-void TrajectoryPlot::setReferencePoints(const QVector<QPointF> &points)
-{
-    ref_ = points;
-    invalidateCache();
-    update();
-}
-
-void TrajectoryPlot::clearReference()
-{
-    ref_.clear();
-    invalidateCache();
-    update();
-}
-
 void TrajectoryPlot::setTruthPoints(const QVector<QPointF> &points)
 {
     truth_ = points;
@@ -73,13 +58,6 @@ void TrajectoryPlot::setTruthPoints(const QVector<QPointF> &points)
 void TrajectoryPlot::clearTruth()
 {
     truth_.clear();
-    invalidateCache();
-    update();
-}
-
-void TrajectoryPlot::setShowReference(bool on)
-{
-    show_reference_ = on;
     invalidateCache();
     update();
 }
@@ -123,7 +101,6 @@ void TrajectoryPlot::recomputeView()
     };
 
     consider(nav_);
-    if (show_reference_) consider(ref_);
     if (!truth_.isEmpty()) consider(truth_);
 
     if (first)
@@ -145,6 +122,15 @@ void TrajectoryPlot::recomputeView()
     span_ = span;
 }
 
+void TrajectoryPlot::renderTo(QPainter &painter, const QSize &size)
+{
+    // Диапазон зависит от данных и пересчитывается в paintContent(), но сетка и
+    // подписи осей рисуются раньше — обновляем вид заранее, иначе в отчёте оси
+    // подписаны дефолтным диапазоном [0,1] вместо метров.
+    recomputeView();
+    PlotView::renderTo(painter, size);
+}
+
 void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
 {
     // Данные добавляются по ходу прогона, поэтому охват считаем каждый раз.
@@ -152,29 +138,9 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
 
     painter.save();
 
-    // Эталон СНС — разреженные точки (измерение, а не траектория).
-    if (show_reference_ && !ref_.isEmpty())
-    {
-        painter.setPen(QPen(kRefColor, 1.0));
-        painter.setBrush(kRefColor);
-        for (const QPointF &p : ref_)
-        {
-            const QPointF s = mapToScreen(p.x(), p.y(), rect);
-            painter.drawEllipse(s, 2.2, 2.2);
-        }
-    }
-
-    // Истинная траектория — пунктиром, чтобы отличать от оценки.
-    if (!truth_.isEmpty())
-    {
-        QPolygonF poly;
-        poly.reserve(truth_.size());
-        for (const QPointF &p : truth_) poly.push_back(mapToScreen(p.x(), p.y(), rect));
-        painter.setPen(QPen(kTruthColor, 1.6, Qt::DashLine));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPolyline(poly);
-    }
-
+    // Оценка БИНС — сплошная линия. Истина рисуется ниже, поверх неё: при
+    // малой ошибке фильтра кривые совпадают, и слой оценки скрыл бы истину
+    // полностью (проверено на отчёте: зелёных пикселей не было).
     if (!nav_.isEmpty())
     {
         QPolygonF poly;
@@ -200,6 +166,18 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
         }
     }
 
+    // Истинная траектория — пунктиром поверх оценки, иначе при почти полном
+    // совпадении кривых её не видно.
+    if (!truth_.isEmpty())
+    {
+        QPolygonF poly;
+        poly.reserve(truth_.size());
+        for (const QPointF &p : truth_) poly.push_back(mapToScreen(p.x(), p.y(), rect));
+        painter.setPen(QPen(kTruthColor, 1.6, Qt::DashLine));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPolyline(poly);
+    }
+
     drawTrajectoryLegend(painter, rect);
 
     painter.restore();
@@ -215,8 +193,6 @@ void TrajectoryPlot::drawTrajectoryLegend(QPainter &painter, const QRectF &rect)
     };
     QVector<Item> items;
     items.push_back({tr("БИНС (оценка)"), kNavColor, false});
-    if (show_reference_ && !ref_.isEmpty())
-        items.push_back({tr("СНС (эталон)"), kRefColor, false});
     if (!truth_.isEmpty()) items.push_back({tr("истина"), kTruthColor, true});
 
     if (items.isEmpty()) return;

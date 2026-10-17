@@ -93,6 +93,10 @@ bool RunStore::createSchema(QString *error)
         "  t REAL, lon REAL, lat REAL, alt REAL,"
         "  heading REAL, pitch REAL, roll REAL,"
         "  vn REAL, vh REAL, ve REAL,"
+        "  has_ref INTEGER DEFAULT 0,"
+        "  ref_lon REAL, ref_lat REAL, ref_alt REAL,"
+        "  ref_heading REAL, ref_pitch REAL, ref_roll REAL,"
+        "  ref_vn REAL, ref_vh REAL, ref_ve REAL,"
         "  PRIMARY KEY (run_id, t))",
 
         "CREATE TABLE IF NOT EXISTS filter_errors ("
@@ -176,6 +180,40 @@ bool RunStore::createSchema(QString *error)
             return false;
         }
     }
+
+    // Та же миграция для эталона СНС в samples: без этих колонок прогон,
+    // открытый из истории, терял отклонения в таблице и опору отчёта.
+    QSet<QString> sample_columns;
+    QSqlQuery sample_info(db_);
+    if (sample_info.exec("PRAGMA table_info(samples)"))
+    {
+        while (sample_info.next()) sample_columns.insert(sample_info.value(1).toString());
+    }
+    const char *reference_columns[] = {
+        "has_ref", "ref_lon", "ref_lat", "ref_alt", "ref_heading",
+        "ref_pitch", "ref_roll", "ref_vn", "ref_vh", "ref_ve"};
+    const char *reference_sql[] = {
+        "ALTER TABLE samples ADD COLUMN has_ref INTEGER DEFAULT 0",
+        "ALTER TABLE samples ADD COLUMN ref_lon REAL",
+        "ALTER TABLE samples ADD COLUMN ref_lat REAL",
+        "ALTER TABLE samples ADD COLUMN ref_alt REAL",
+        "ALTER TABLE samples ADD COLUMN ref_heading REAL",
+        "ALTER TABLE samples ADD COLUMN ref_pitch REAL",
+        "ALTER TABLE samples ADD COLUMN ref_roll REAL",
+        "ALTER TABLE samples ADD COLUMN ref_vn REAL",
+        "ALTER TABLE samples ADD COLUMN ref_vh REAL",
+        "ALTER TABLE samples ADD COLUMN ref_ve REAL",
+    };
+    for (int i = 0; i < 10; ++i)
+    {
+        if (sample_columns.contains(QLatin1String(reference_columns[i]))) continue;
+        QSqlQuery alter(db_);
+        if (!alter.exec(QLatin1String(reference_sql[i])))
+        {
+            if (error) *error = alter.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -221,8 +259,10 @@ bool RunStore::appendSamples(qint64 runId, const QVector<SampleRow> &rows)
     db_.transaction();
     QSqlQuery q(db_);
     q.prepare("INSERT OR REPLACE INTO samples "
-              "(run_id, t, lon, lat, alt, heading, pitch, roll, vn, vh, ve) "
-              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+              "(run_id, t, lon, lat, alt, heading, pitch, roll, vn, vh, ve, "
+              " has_ref, ref_lon, ref_lat, ref_alt, ref_heading, ref_pitch, "
+              " ref_roll, ref_vn, ref_vh, ref_ve) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
     for (const SampleRow &r : rows)
     {
@@ -237,6 +277,16 @@ bool RunStore::appendSamples(qint64 runId, const QVector<SampleRow> &rows)
         q.addBindValue(r.vn);
         q.addBindValue(r.vh);
         q.addBindValue(r.ve);
+        q.addBindValue(r.has_reference ? 1 : 0);
+        q.addBindValue(r.ref_lon);
+        q.addBindValue(r.ref_lat);
+        q.addBindValue(r.ref_alt);
+        q.addBindValue(r.ref_heading);
+        q.addBindValue(r.ref_pitch);
+        q.addBindValue(r.ref_roll);
+        q.addBindValue(r.ref_vn);
+        q.addBindValue(r.ref_vh);
+        q.addBindValue(r.ref_ve);
         if (!q.exec())
         {
             db_.rollback();
@@ -357,7 +407,9 @@ QVector<SampleRow> RunStore::loadSamples(qint64 runId) const
     if (!isOpen()) return out;
 
     QSqlQuery q(db_);
-    if (!q.prepare("SELECT t, lon, lat, alt, heading, pitch, roll, vn, vh, ve "
+    if (!q.prepare("SELECT t, lon, lat, alt, heading, pitch, roll, vn, vh, ve, "
+                   "has_ref, ref_lon, ref_lat, ref_alt, ref_heading, ref_pitch, "
+                   "ref_roll, ref_vn, ref_vh, ref_ve "
                    "FROM samples WHERE run_id = ? ORDER BY t"))
     {
         return out;
@@ -378,6 +430,16 @@ QVector<SampleRow> RunStore::loadSamples(qint64 runId) const
         r.vn = q.value(7).toDouble();
         r.vh = q.value(8).toDouble();
         r.ve = q.value(9).toDouble();
+        r.has_reference = q.value(10).toInt() != 0;
+        r.ref_lon = q.value(11).toDouble();
+        r.ref_lat = q.value(12).toDouble();
+        r.ref_alt = q.value(13).toDouble();
+        r.ref_heading = q.value(14).toDouble();
+        r.ref_pitch = q.value(15).toDouble();
+        r.ref_roll = q.value(16).toDouble();
+        r.ref_vn = q.value(17).toDouble();
+        r.ref_vh = q.value(18).toDouble();
+        r.ref_ve = q.value(19).toDouble();
         out.push_back(r);
     }
     return out;

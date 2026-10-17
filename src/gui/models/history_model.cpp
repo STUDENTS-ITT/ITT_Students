@@ -95,6 +95,22 @@ bool HistoryModel::loadRun(qint64 runId, RunSeries &series) const
         row.result[RunSeries::Vh] = s.vh;
         row.result[RunSeries::Ve] = s.ve;
 
+        // Эталон СНС (сохранён вместе с отсчётом): без него после открытия
+        // прогона из истории терялись отклонения в таблице и опора отчёта.
+        if (s.has_reference)
+        {
+            row.has_reference = true;
+            row.reference[RunSeries::Lon] = s.ref_lon;
+            row.reference[RunSeries::Lat] = s.ref_lat;
+            row.reference[RunSeries::Alt] = s.ref_alt;
+            row.reference[RunSeries::Heading] = s.ref_heading;
+            row.reference[RunSeries::Pitch] = s.ref_pitch;
+            row.reference[RunSeries::Roll] = s.ref_roll;
+            row.reference[RunSeries::Vn] = s.ref_vn;
+            row.reference[RunSeries::Vh] = s.ref_vh;
+            row.reference[RunSeries::Ve] = s.ref_ve;
+        }
+
         while (covCursor < covTimes.size() && covTimes[covCursor] < s.t) ++covCursor;
         if (covCursor < covTimes.size() &&
             qAbs(covTimes[covCursor] - s.t) <= 1e-6 * (1.0 + qAbs(s.t)))

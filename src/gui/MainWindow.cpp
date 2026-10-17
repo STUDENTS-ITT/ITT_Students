@@ -670,7 +670,6 @@ void MainWindow::onStart()
     current_run_id_ = -1;
     nav_model_->clear();
     plot_trajectory_->clearTrajectory();
-    plot_trajectory_->clearReference();
     plot_trajectory_->clearTruth();
     plot_errors_->clearSyncMarkers();
     state_->reset();
@@ -799,6 +798,19 @@ void MainWindow::onWorkerFinished(bool ok, const QString &message)
             s.vn = r.result[RunSeries::Vn];
             s.vh = r.result[RunSeries::Vh];
             s.ve = r.result[RunSeries::Ve];
+            // Эталон СНС сохраняем вместе с отсчётом: при открытии прогона из
+            // истории он нужен для колонки отклонений в таблице и экспорта
+            // ряда, а также как опора отчёта, если истины в наборе нет.
+            s.has_reference = r.has_reference;
+            s.ref_lon = r.reference[RunSeries::Lon];
+            s.ref_lat = r.reference[RunSeries::Lat];
+            s.ref_alt = r.reference[RunSeries::Alt];
+            s.ref_heading = r.reference[RunSeries::Heading];
+            s.ref_pitch = r.reference[RunSeries::Pitch];
+            s.ref_roll = r.reference[RunSeries::Roll];
+            s.ref_vn = r.reference[RunSeries::Vn];
+            s.ref_vh = r.reference[RunSeries::Vh];
+            s.ref_ve = r.reference[RunSeries::Ve];
             samples.push_back(s);
         }
 
@@ -1386,11 +1398,9 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab) const
     }
 }
 
-void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref,
-                                      QVector<QPointF> *truth)
+void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *truth)
 {
     nav->clear();
-    ref->clear();
     if (truth != nullptr) truth->clear();
     if (series_.rows.empty()) return;
 
@@ -1416,14 +1426,6 @@ void MainWindow::buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *
         const double d_e = (r.result[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH *
                            std::cos(lat0);
         nav->push_back(QPointF(d_e, d_n));
-
-        if (r.has_reference)
-        {
-            const double rn = (r.reference[RunSeries::Lat] * DEG_TO_RAD - lat0) * R_EARTH;
-            const double re = (r.reference[RunSeries::Lon] * DEG_TO_RAD - lon0) * R_EARTH *
-                              std::cos(lat0);
-            ref->push_back(QPointF(re, rn));
-        }
     }
 
     // Последняя точка траектории всегда рисуется — конец прогона важен.
@@ -1459,13 +1461,10 @@ void MainWindow::updateTrajectory()
     ensureTruthLoaded();
 
     QVector<QPointF> nav;
-    QVector<QPointF> ref;
     QVector<QPointF> truth;
-    buildTrajectoryPoints(&nav, &ref, &truth);
+    buildTrajectoryPoints(&nav, &truth);
 
     plot_trajectory_->setNavPoints(nav);
-    plot_trajectory_->setReferencePoints(ref);
-    plot_trajectory_->setShowReference(!ref.isEmpty());
     plot_trajectory_->setTruthPoints(truth);
 }
 
@@ -2152,13 +2151,10 @@ void MainWindow::onExportAnimation()
     // Траектория: полные точки для фиксации масштаба и растущая часть по кадрам.
     const bool is_trajectory = (plot == plot_trajectory_);
     QVector<QPointF> anim_nav;
-    QVector<QPointF> anim_ref;
     if (is_trajectory)
     {
-        buildTrajectoryPoints(&anim_nav, &anim_ref);
+        buildTrajectoryPoints(&anim_nav);
         plot_trajectory_->setNavPoints(anim_nav);
-        plot_trajectory_->setReferencePoints(anim_ref);
-        plot_trajectory_->setShowReference(!anim_ref.isEmpty());
         plot_trajectory_->resetView();
     }
 

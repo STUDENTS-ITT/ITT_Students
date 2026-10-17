@@ -3,7 +3,9 @@
 // Схема:
 //   runs(id, name, created_at, data_dir, config_json, settings_ini, steps,
 //        corrections, wall_seconds, has_angle)
-//   samples(run_id, t, lon, lat, alt, heading, pitch, roll, vn, vh, ve)
+//   samples(run_id, t, lon, lat, alt, heading, pitch, roll, vn, vh, ve,
+//           has_ref, ref_lon, ref_lat, ref_alt, ref_heading, ref_pitch,
+//           ref_roll, ref_vn, ref_vh, ref_ve)
 //   filter_errors(run_id, t, x0..x14)
 //   covariances(run_id, t, p0..p14)
 //
@@ -46,6 +48,13 @@ struct SampleRow
     double lon = 0, lat = 0, alt = 0;
     double heading = 0, pitch = 0, roll = 0;
     double vn = 0, vh = 0, ve = 0;
+
+    // Эталон СНС на кадрах коррекции. has_reference = false — эталона не было
+    // (или прогон сохранён до появления этих колонок).
+    bool has_reference = false;
+    double ref_lon = 0, ref_lat = 0, ref_alt = 0;
+    double ref_heading = 0, ref_pitch = 0, ref_roll = 0;
+    double ref_vn = 0, ref_vh = 0, ref_ve = 0;
 };
 
 // Хранилище истории прогонов.

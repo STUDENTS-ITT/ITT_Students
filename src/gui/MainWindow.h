@@ -192,10 +192,9 @@ private:
     // Перевод географических координат в метры от точки старта.
     void updateTrajectory();
 
-    // Точки траектории (БИНС), эталона СНС и истины в метрах от точки старта —
-    // общий код для updateTrajectory() и экспорта анимации.
-    void buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *ref,
-                               QVector<QPointF> *truth = nullptr);
+    // Точки траектории (БИНС) и истины в метрах от точки старта — общий код
+    // для updateTrajectory() и экспорта анимации.
+    void buildTrajectoryPoints(QVector<QPointF> *nav, QVector<QPointF> *truth = nullptr);
 
     void applyTheme(bool dark);
     void saveSettings();
