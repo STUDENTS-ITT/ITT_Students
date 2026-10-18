@@ -173,9 +173,23 @@ void TrajectoryPlot::paintContent(QPainter &painter, const QRectF &rect)
         QPolygonF poly;
         poly.reserve(truth_.size());
         for (const QPointF &p : truth_) poly.push_back(mapToScreen(p.x(), p.y(), rect));
-        painter.setPen(QPen(kTruthColor, 1.6, Qt::DashLine));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPolyline(poly);
+
+        // Неподвижная истина (статичный набор) даёт вырожденную ломаную: все
+        // точки совпадают, и Qt такую линию не рисует. В этом случае отмечаем
+        // положение маркером — иначе кривой истины на графике не видно.
+        const QRectF box = poly.boundingRect();
+        if (box.width() < 2.0 && box.height() < 2.0)
+        {
+            painter.setPen(QPen(kTruthColor, 1.4));
+            painter.setBrush(kTruthColor);
+            painter.drawEllipse(poly.first(), 2.6, 2.6);
+        }
+        else
+        {
+            painter.setPen(QPen(kTruthColor, 1.6, Qt::DashLine));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPolyline(poly);
+        }
     }
 
     drawTrajectoryLegend(painter, rect);

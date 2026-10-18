@@ -243,6 +243,7 @@ private slots:
     void disabledCacheDrawsWithoutPixmap();
     void cursorDrawnOnFirstFrame();
     void trajectoryTruthOverlay();
+    void trajectoryStationaryTruthVisible();
     void batchesExportAllPlots();
     void animationExport();
 };
@@ -575,6 +576,46 @@ void TestPlots::trajectoryTruthOverlay()
     plot.clearTruth();
     QVERIFY(!plot.hasTruth());
     QCOMPARE(render(), without);
+}
+
+// Неподвижная истина (статичный набор): все точки совпадают, и ломаная
+// вырождается в точку, которую Qt не рисует. Истина должна остаться видимой —
+// маркером в её положении. Считаем зелёные пиксели графика, исключая легенду
+// (в ней есть зелёный образец линии даже без кривой истины).
+void TestPlots::trajectoryStationaryTruthVisible()
+{
+    TrajectoryPlot plot;
+    plot.resize(600, 400);
+
+    QVector<QPointF> nav;
+    for (int i = 0; i <= 20; ++i) nav.push_back(QPointF(i * 5.0, i * 5.0));
+    plot.setNavPoints(nav);
+
+    QVector<QPointF> truth;
+    for (int i = 0; i <= 20; ++i) truth.push_back(QPointF(50.0, 50.0));
+    plot.setTruthPoints(truth);
+
+    const auto render = [&plot]() {
+        QImage img(600, 400, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        plot.renderTo(p, img.size());
+        return img;
+    };
+    render();
+    const QImage img = render();
+
+    int green = 0;
+    for (int y = 0; y < img.height(); ++y)
+    {
+        for (int x = 0; x < img.width(); ++x)
+        {
+            if (x < 260 && y < 120) continue;
+            const QColor c = img.pixelColor(x, y);
+            if (c.green() > c.red() + 30 && c.green() > c.blue() + 30) ++green;
+        }
+    }
+    QVERIFY2(green >= 10, "неподвижная истина не видна на графике траектории");
 }
 
 void TestPlots::batchesExportAllPlots()
