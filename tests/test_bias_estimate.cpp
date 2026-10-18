@@ -203,8 +203,6 @@ void TestBiasEstimate::logWrittenAndParseable()
             QVERIFY(s.sig_ba[k] >= 0.0 && std::isfinite(s.sig_ba[k]));
             QVERIFY(s.sig_bg[k] >= 0.0 && std::isfinite(s.sig_bg[k]));
         }
-        QVERIFY(std::isfinite(s.trim_bias_pitch));
-        QVERIFY(std::isfinite(s.trim_bias_roll));
     }
 
     // Журнал покрывает весь прогон: последний кадр близок к концу данных.

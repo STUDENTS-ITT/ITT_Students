@@ -39,8 +39,7 @@ bool BiasLogWriter::open(const std::string &path)
 
     // Заголовок — имена колонок; парсер отчёта пропускает строки на '#'.
     out_ << "# time_s ba_x ba_y ba_z bg_x bg_y bg_z "
-            "sig_ba_x sig_ba_y sig_ba_z sig_bg_x sig_bg_y sig_bg_z "
-            "trim_bias_pitch trim_bias_roll\n";
+            "sig_ba_x sig_ba_y sig_ba_z sig_bg_x sig_bg_y sig_bg_z\n";
     // Полная машинная точность: σ(P_ba) порядка 1e-6 м/с², усечение до 4
     // значащих цифр обнуляет их (пробел, который фиксирует план, п. 6).
     out_ << std::scientific << std::setprecision(17);
@@ -56,7 +55,7 @@ void BiasLogWriter::write(const BiasSample &s)
     for (int k = 0; k < 3; k++) out_ << ' ' << s.bg[k];
     for (int k = 0; k < 3; k++) out_ << ' ' << s.sig_ba[k];
     for (int k = 0; k < 3; k++) out_ << ' ' << s.sig_bg[k];
-    out_ << ' ' << s.trim_bias_pitch << ' ' << s.trim_bias_roll << '\n';
+    out_ << '\n';
 }
 
 void BiasLogWriter::close()
@@ -112,14 +111,16 @@ bool readBiasLog(const std::string &path, std::vector<BiasSample> &out,
             }
             return false;
         }
-        // 15 колонок: время, ba×3, bg×3, σ_ba×3, σ_bg×3, трим×2.
-        if (values.size() != 15)
+        // 13 колонок: время, ba×3, bg×3, σ_ba×3, σ_bg×3.
+        // (Этап 1: трим×2 удалён из формата — см. bias_log.h.)
+        constexpr std::size_t EXPECTED_COLUMNS = 13;
+        if (values.size() != EXPECTED_COLUMNS)
         {
             if (error)
             {
                 std::ostringstream msg;
-                msg << path << ": line " << line_no << ": expected 15 columns, got "
-                    << values.size();
+                msg << path << ": line " << line_no << ": expected "
+                    << EXPECTED_COLUMNS << " columns, got " << values.size();
                 *error = msg.str();
             }
             return false;
@@ -134,8 +135,6 @@ bool readBiasLog(const std::string &path, std::vector<BiasSample> &out,
             s.sig_ba[k] = values[7 + k];
             s.sig_bg[k] = values[10 + k];
         }
-        s.trim_bias_pitch = values[13];
-        s.trim_bias_roll = values[14];
         out.push_back(s);
     }
 

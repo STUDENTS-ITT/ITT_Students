@@ -447,8 +447,6 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
                 sample.sig_ba[k] = sqrt(fmax(0.0, at(state.P, 9 + k, 9 + k, ins::KF_STATE)));
                 sample.sig_bg[k] = sqrt(fmax(0.0, at(state.P, 12 + k, 12 + k, ins::KF_STATE)));
             }
-            sample.trim_bias_pitch = state.tilt_trim.bias_pitch;
-            sample.trim_bias_roll = state.tilt_trim.bias_roll;
             bias_log.write(sample);
             bias_last_written = imu_time;
             bias_rows++;
@@ -488,8 +486,6 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
             sample.sig_ba[k] = sqrt(fmax(0.0, at(state.P, 9 + k, 9 + k, ins::KF_STATE)));
             sample.sig_bg[k] = sqrt(fmax(0.0, at(state.P, 12 + k, 12 + k, ins::KF_STATE)));
         }
-        sample.trim_bias_pitch = state.tilt_trim.bias_pitch;
-        sample.trim_bias_roll = state.tilt_trim.bias_roll;
         // Дедупликация: если последний такт попал в декадирование, кадр уже есть.
         if (sample.time != bias_last_written)
         {

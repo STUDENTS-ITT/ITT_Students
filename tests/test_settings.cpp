@@ -204,12 +204,7 @@ void TestSettings::settingsDefaultsMatchFilterDefaults()
     QCOMPARE(s.tilt.gyro_off_rad_s, t.gyro_off_rad_s);
     QCOMPARE(s.tilt.settle_s, t.settle_s);
     QCOMPARE(s.tilt.brake_body_accel, t.brake_body_accel);
-    QCOMPARE(s.tilt.tau_fast_s, t.tau_fast_s);
-    QCOMPARE(s.tilt.tau_slow_s, t.tau_slow_s);
-    QCOMPARE(s.tilt.fast_err_rad, t.fast_err_rad);
     QCOMPARE(s.tilt.level_acc_rad, t.level_acc_rad);
-    QCOMPARE(s.tilt.bias_gain, t.bias_gain);
-    QCOMPARE(s.tilt.bias_max_rad_s, t.bias_max_rad_s);
     QCOMPARE(s.tilt.divergence_deadband_rad, t.divergence_deadband_rad);
 }
 
@@ -233,7 +228,7 @@ void TestSettings::dumpsAndReloadsSettings()
 {
     nav::FilterSettings s;
     s.filter.sig_g = 0.777;
-    s.tilt.bias_gain = 0.5;
+    s.tilt.level_acc_rad = 0.02;
     s.align_fallback_s = 45.0;
 
     const std::string text = nav::dumpFilterSettings(s);
@@ -252,7 +247,7 @@ void TestSettings::dumpsAndReloadsSettings()
     nav::FilterSettings loaded;
     QVERIFY(nav::loadFilterSettings(path.toStdString(), loaded));
     QCOMPARE(loaded.filter.sig_g, 0.777);
-    QCOMPARE(loaded.tilt.bias_gain, 0.5);
+    QCOMPARE(loaded.tilt.level_acc_rad, 0.02);
     QCOMPARE(loaded.align_fallback_s, 45.0);
     QCOMPARE(loaded.tilt.settle_s, s.tilt.settle_s);
 }

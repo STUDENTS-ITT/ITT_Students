@@ -64,12 +64,7 @@ void ParamsTableModel::rebuild()
     bind("tilt/gyro_off_rad_s", &settings_.tilt.gyro_off_rad_s);
     bind("tilt/settle_s", &settings_.tilt.settle_s);
     bind("tilt/brake_body_accel", &settings_.tilt.brake_body_accel);
-    bind("tilt/tau_fast_s", &settings_.tilt.tau_fast_s);
-    bind("tilt/tau_slow_s", &settings_.tilt.tau_slow_s);
-    bind("tilt/fast_err_rad", &settings_.tilt.fast_err_rad);
     bind("tilt/level_acc_rad", &settings_.tilt.level_acc_rad);
-    bind("tilt/bias_gain", &settings_.tilt.bias_gain);
-    bind("tilt/bias_max_rad_s", &settings_.tilt.bias_max_rad_s);
     bind("tilt/divergence_deadband_rad", &settings_.tilt.divergence_deadband_rad);
 
     // run

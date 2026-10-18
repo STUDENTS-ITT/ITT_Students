@@ -22,27 +22,30 @@ struct TiltManeuverPolicy
     double settle_s = 0.35;
     double brake_body_accel = 0.7; // м/с², |V̇_body x/y| — торможение/разгон
 
-    // Апериодическое сведение к акселю: быстрое при большой ошибке,
-    // медленное у нуля — иначе шум акселя попадает прямо в угол.
-    double tau_fast_s = 0.3;
-    double tau_slow_s = 4.0;
-    double fast_err_rad = 1.0 * DEG_TO_RAD;
+    // Порог «горизонтальности» по акселю: за ним limitTiltDivergence не
+    // работает (в манёвре он бесполезен и вреден).
     double level_acc_rad = 1.5 * DEG_TO_RAD;
-
-    // Интегральная оценка дрейфа θ̇/φ̇: без неё пропорциональная коррекция
-    // уравновешивает дрейф на постоянной ошибке ω_дрейф · tau.
-    double bias_gain = 0.2;                        // 1/с²
-    double bias_max_rad_s = 0.3 * DEG_TO_RAD;
 
     double divergence_deadband_rad = 0.25 * DEG_TO_RAD;
 };
 
-// Оценка дрейфа угловых скоростей тангажа/крена (интегральный член).
-struct TiltTrimState
-{
-    double bias_pitch = 0.0;
-    double bias_roll = 0.0;
-};
+// ЭТАП 1 (R1) — УДАЛЕНО: TiltTrimState, trimDriftIncrement, trimManeuverTilt.
+//
+// Это был скрытый оцениватель дрейфа тангажа/крена: интеграл bias_pitch/
+// bias_roll вычитался из скоростей Эйлера (applyTiltRateBias) и подтягивал
+// угол напрямую (trimTiltAxis). Ветка жила вне фильтра — конкурировала с
+// x[12..14], не имела ковариации и не выводилась ни в телеметрию, ни в
+// runs.db, ни в отчёт.
+//
+// Опыт по 9 наборам показал, что трим в оценке смещений не участвовал вовсе:
+// счётчики «сходится/не сходится/не наблюдаемо» после его удаления совпали с
+// baseline на всех наборах, а на самом жёстком (square_harsh) ошибка тангажа
+// упала на 30 %, крена — на 13 %, широты — на 39 %. Инжекция его интеграла в
+// bg (вариант «b» плана) оказалась вредной: оценка уходила к клампу
+// bias_max_rad_s, превышая истину в 10–20 раз.
+//
+// Поля политики tau_fast_s/tau_slow_s/fast_err_rad/bias_gain/bias_max_rad_s
+// удалены вместе с механикой — они обслуживали только прямую подтяжку угла.
 
 // Глобальная политика сведения тангажа/крена.
 //
@@ -75,13 +78,6 @@ inline double rawAccelPitch(const Vector &f_body)
 inline double rawAccelRoll(const Vector &f_body)
 {
     return -atan2(f_body[2], f_body[1]);
-}
-
-// Вычитание оценённого дрейфа из скоростей Эйлера перед интегрированием.
-inline void applyTiltRateBias(ins::AttitudeRates &rates, const TiltTrimState &trim)
-{
-    rates.pitch_dot -= trim.bias_pitch;
-    rates.roll_dot -= trim.bias_roll;
 }
 
 // Запрет наращивать расхождение с акселем: скорость, уводящая угол от
@@ -117,46 +113,7 @@ inline bool limitTiltDivergence(ins::AttitudeRates &rates,
     return true;
 }
 
-inline void trimTiltAxis(double &att, double &bias, double raw, double dt,
-                         double trust, const TiltManeuverPolicy &pol)
-{
-    const double delta = normalize_angle(raw - att);
-    const double tau = (fabs(delta) > pol.fast_err_rad) ? pol.tau_fast_s
-                                                        : pol.tau_slow_s;
-    att = normalize_angle(att + fmin(1.0, trust * dt / tau) * delta);
-
-    bias = fmax(-pol.bias_max_rad_s,
-                fmin(pol.bias_max_rad_s,
-                     bias - trust * pol.bias_gain * delta * dt));
-}
-
-// Сведение углов к горизонту, когда манёвр закончился и аксель показывает level.
-inline bool trimManeuverTilt(ins::Attitude &att,
-                             TiltTrimState &trim,
-                             const Vector &f_body,
-                             double gyro_mag,
-                             const Vector &V_dot_body,
-                             double dt,
-                             const TiltManeuverPolicy &pol = {})
-{
-    if (!isLevelTiltSettled(gyro_mag, V_dot_body, pol))
-        return false;
-
-    const double raw_pitch = rawAccelPitch(f_body);
-    const double raw_roll = rawAccelRoll(f_body);
-
-    if (fabs(raw_pitch) >= pol.level_acc_rad || fabs(raw_roll) >= pol.level_acc_rad)
-        return false;
-
-    // Чем тише гироскоп, тем достовернее «аксель = горизонт»: на хвосте
-    // манёвра машина ещё доворачивает, и гнаться за акселем нельзя.
-    const double trust = 1.0 - gyro_mag / pol.gyro_off_rad_s;
-
-    trimTiltAxis(att.pitch, trim.bias_pitch, raw_pitch, dt, trust, pol);
-    trimTiltAxis(att.roll, trim.bias_roll, raw_roll, dt, trust, pol);
-    return true;
-}
-
+// Интегральная оценка дрейфа одной оси без прямой подтяжки угла (Этап 1).
 inline bool shouldApplyAccelTilt(double time_s,
                                  double maneuver_time_s,
                                  double gyro_mag,

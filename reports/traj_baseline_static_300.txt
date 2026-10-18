@@ -1,0 +1,26 @@
+﻿traj baseline - static_300
+rows: 2991
+
+group       rms         final              
+pos    3.5715e-002   2.7000e-003
+vel    2.2325e-001   3.8700e-001
+att    5.8702e-003   9.0000e-004
+ba     0.0000e+000   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=6.1860e-002  final=2.7000e-003
+  x3   rms=2.6138e-001  final=1.1880e-001
+  x4   rms=7.0670e-002  final=-1.5400e-002
+  x5   rms=2.7605e-001  final=3.8700e-001
+  x6   rms=8.3687e-003  final=9.0000e-004
+  x7   rms=4.1411e-003  final=5.0000e-004
+  x8   rms=4.0241e-003  final=-8.0000e-004
+  x9   rms=0.0000e+000  final=0.0000e+000
+  x10  rms=0.0000e+000  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

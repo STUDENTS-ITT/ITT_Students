@@ -63,8 +63,9 @@ struct NavState
     // Время последнего |ω| > gyro_off (пауза перед акселем).
     double tilt_maneuver_time = -1e9;
 
-    // Оценка дрейфа тангажа/крена для сведения к горизонту.
-    TiltTrimState tilt_trim;
+    // Этап 1 (R1): поле TiltTrimState tilt_trim УДАЛЕНО — скрытый оцениватель
+    // дрейфа тангажа/крена вырезан из шага счисления. См. комментарий в
+    // maneuver_tilt.h.
 };
 
 // Формирование строки результата: БИНС с вычитанием ошибок Калмана.
@@ -268,7 +269,11 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     const Vector w_nav = navAngularRate(st.lat, V, R_EARTH + st.alt);
     const Vector w_rel = ins::relativeRate(gyro_raw, w_nav, C);
     ins::AttitudeRates rates = ins::eulerRates(w_rel, st.att.pitch, st.att.roll);
-    applyTiltRateBias(rates, st.tilt_trim);
+    // Этап 1 (R1): вычет трима из скоростей Эйлера (applyTiltRateBias) УДАЛЁН.
+    // Это был скрытый оцениватель дрейфа вне фильтра: конкурировал с
+    // x[12..14], не имел ковариации и не выводился ни в телеметрию, ни в
+    // runs.db. Дрейф теперь идёт через номинал bg (injectTrimDrift ниже),
+    // а limitTiltDivergence остаётся единственным ограничителем интегрирования.
     limitTiltDivergence(rates, st.att, f_body, gyro_mag, V_dot_body, TILT_POL);
     const ins::Attitude att = ins::integrate(st.att, rates, st.rates_prev, dt);
 
@@ -287,13 +292,11 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     st.rates_prev = rates;
     st.time_prev = time_s;
 
-    trimManeuverTilt(st.att, st.tilt_trim, f_body, gyro_mag, V_dot_body, dt, TILT_POL);
-
     // Предсказание фильтра Калмана (П5): после интегрирования номинала за такт
-    // (включая trim углов) — по свежему состоянию. Раньше predict шёл по состоянию
-    // прошлого такта (до интеграции), что давало систематический сдвиг на dt между
-    // predict и коррекцией, где инновация считается против только что
-    // проинтегрированного номинала.
+    // — по свежему состоянию. Раньше predict шёл по состоянию прошлого такта
+    // (до интеграции), что давало систематический сдвиг на dt между predict и
+    // коррекцией, где инновация считается против только что проинтегрированного
+    // номинала.
     const Matrix C_cur = bodyToNavMatrix(st.att.heading, st.att.pitch, st.att.roll);
     const Vector n_nav_cur = bodyToNav(C_cur, f_body);
     ins::predict(dt, st.lat, st.alt, C_cur, n_nav_cur, st.att, st.x, st.P);

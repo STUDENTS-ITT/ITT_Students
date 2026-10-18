@@ -1,0 +1,26 @@
+﻿traj baseline - square_harsh
+rows: 6599
+
+group       rms         final              
+pos    8.3382e-002   4.2500e-002
+vel    1.4868e+000   3.4620e-001
+att    3.0654e-001   2.1500e-002
+ba     2.5596e-005   0.0000e+000
+bg     2.3172e-005   0.0000e+000
+
+per-column rms:
+  x0   rms=8.4672e-005  final=0.0000e+000
+  x1   rms=4.3173e-005  final=0.0000e+000
+  x2   rms=1.4442e-001  final=-4.2500e-002
+  x3   rms=1.7839e+000  final=3.4620e-001
+  x4   rms=7.1030e-001  final=2.6600e-001
+  x5   rms=1.7162e+000  final=-1.9760e-001
+  x6   rms=2.4411e-002  final=-2.1500e-002
+  x7   rms=4.5998e-001  final=-1.3000e-003
+  x8   rms=2.6405e-001  final=-6.8000e-003
+  x9   rms=3.7460e-005  final=0.0000e+000
+  x10  rms=2.7526e-006  final=0.0000e+000
+  x11  rms=2.3551e-005  final=0.0000e+000
+  x12  rms=2.1322e-005  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=3.4003e-005  final=0.0000e+000

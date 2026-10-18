@@ -50,12 +50,7 @@ std::vector<FieldBinding> tiltBindings(TiltManeuverPolicy &p)
         {"tilt/gyro_off_rad_s", &p.gyro_off_rad_s},
         {"tilt/settle_s", &p.settle_s},
         {"tilt/brake_body_accel", &p.brake_body_accel},
-        {"tilt/tau_fast_s", &p.tau_fast_s},
-        {"tilt/tau_slow_s", &p.tau_slow_s},
-        {"tilt/fast_err_rad", &p.fast_err_rad},
         {"tilt/level_acc_rad", &p.level_acc_rad},
-        {"tilt/bias_gain", &p.bias_gain},
-        {"tilt/bias_max_rad_s", &p.bias_max_rad_s},
         {"tilt/divergence_deadband_rad", &p.divergence_deadband_rad},
     };
 }
@@ -293,12 +288,7 @@ std::vector<SettingDescriptor> filterSettingDescriptors()
     add("tilt/gyro_off_rad_s", "Порог гироскопа для tilt-режима", "рад/с", 0.0, 1.0);
     add("tilt/settle_s", "Время успокоения после манёвра", "с", 0.0, 10.0);
     add("tilt/brake_body_accel", "Порог торможения (tanгаж/крен)", "м/с²", 0.0, 50.0);
-    add("tilt/tau_fast_s", "Постоянная времени быстрого сведения", "с", 0.0, 10.0);
-    add("tilt/tau_slow_s", "Постоянная времени медленного сведения", "с", 0.0, 100.0);
-    add("tilt/fast_err_rad", "Порог быстрого сведения", "рад", 0.0, 1.0);
     add("tilt/level_acc_rad", "Порог «аксель смотрит в горизонт»", "рад", 0.0, 1.0);
-    add("tilt/bias_gain", "Усиление интегральной оценки дрейфа", "1/с²", 0.0, 10.0);
-    add("tilt/bias_max_rad_s", "Ограничение оценки дрейфа", "рад/с", 0.0, 1.0);
     add("tilt/divergence_deadband_rad", "Мёртвая зона расхождения", "рад", 0.0, 1.0);
 
     add("run/align_time_override_s", "Выставка (0 — из StartupNav.ini)", "с", 0.0, 1e5);
