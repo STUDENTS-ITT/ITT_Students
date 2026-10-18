@@ -114,9 +114,11 @@
 - `Matrix P = Matrix(KF_STATE*KF_STATE, 0)` — ковариация фильтра;
 - `Vector bg_static = {0,0,0}` — статическое смещение гироскопа (для истинного
   курса);
-- `double tilt_maneuver_time = −1e9` — время последнего `|ω| > gyro_off`
-  (пауза перед доверием акселю);
-- `TiltTrimState tilt_trim` — оценка дрейфа тангажа/крена.
+- `double tilt_maneuver_time = −1e9` — время последнего такта, когда горизонт
+  акселя считался недостоверным (`|ω| > gyro_off_rad_s` или торможение);
+  от него отсчитывается пауза `settle_s` перед доверием акселю.
+  (Поле `TiltTrimState tilt_trim` удалено на Этапе 1 — скрытый оцениватель
+  дрейфа тангажа/крена вне фильтра, см. `docs/bias_estimation_stages.md`, §4.)
 
 ### Формирование вывода
 
@@ -130,25 +132,35 @@
 - `inline data_io::NavReference makeReference(double time, const SnsSample &ref)` —
   строка эталона: координаты/углы в градусы, скорости как есть.
 
-### Оценка тангажа/крена по акселю
+### Оценка горизонта по акселерометру (Этап 2, R2)
 
-- `struct AccelAttitude`:
-  - `bool ok` — годен ли аксель как горизонт;
-  - `double pitch`, `roll` — оценка углов;
-  - `double sig_pitch`, `sig_roll` — σ измерения (по умолчанию
-    `1e6·DEG_TO_RAD` — «игнорировать»).
-- `inline AccelAttitude evalAccelAttitude(const Vector &f_body, const Vector &V_dot_body, double lat, double alt, const Vector &gyro_raw)`:
-  - вычитает из показаний акселя динамику: `a = f_body − V_dot_body`;
-  - `acc_error = || |a| − g(lat,alt) ||`, `gyro_mag = |gyro_raw|`;
-  - `ok = (acc_error ≤ 0.2) && (gyro_mag ≤ 0.005)`;
-  - `pitch = atan2(ax, ay)`, `roll = −atan2(az, ay)`;
-  - при `!ok` — σ игнорирования; иначе доверие
-    `trust = max(0.05, trust_acc·trust_gyro)` и
-    `sig_tilt = 0.5° + (1−trust)·(5° − 0.5°)` (линейно от 0.5° до 5°).
+Отдельного `evalAccelAttitude` больше нет: аксель входит в фильтр штатным
+измерением (`ins::correctAccel`, `src/core/ins/ins_filter.h`), а не как
+готовые углы. Модель:
 
-Константы внутри: `ACC_TOLERANCE = 0.2` м/с², `GYRO_TOLERANCE = 0.005` рад/с
-(согласовано с `TiltManeuverPolicy::gyro_off_rad_s`), `SIG_TILT_MIN/MAX`.
+```text
+h(x̂) = Ĉ_б^нᵀ·a_вред(φ̂, ĥ, V̂) + b̂a      (V̇ ≈ 0),
+y     = f_б^изм,   z = h − y,
+H: столбцы x[6..8] (углы) и x[9..11] (смещения акселя),   R = (σ_a·√dt)²·I.
+```
 
+Измерение — **горизонт**, то есть только связанные оси X и Z; ось Y
+(модуль удельной силы) исключена, потому что её единственный сигнал —
+`b̂a_Y`, и неучтённое `V̇_Y` уходит туда целиком (вывод и замер — §5
+`docs/bias_estimation_stages.md`). `V̇` из БИНС в модель не подставляется:
+там он сам построен по `f_б` и обращает `z` в тождественный нуль.
+
+Годность измерения определяется политикой `TiltManeuverPolicy`
+(`src/core/navigation/maneuver_tilt.h`) в `shouldApplyAccelHorizon`:
+
+- `gyro_mag ≤ gyro_off_rad_s` — нет вращения;
+- не торможение (`!isBrakingManeuver(V_dot_body)`);
+- с последнего манёвра прошло не меньше `settle_s`;
+- `‖z‖ ≤ accel_gate_ms2` — грубая защита от расхождения.
+
+Ключи политики живут в `presets/*.ini` (`filter/*` и `tilt/*`:
+`gyro_off_rad_s`, `settle_s`, `brake_body_accel`, `level_acc_rad`,
+`divergence_deadband_rad`, `accel_gate_ms2`), читаются `filter_settings.cpp`.
 ### Телеметрия для GUI
 
 - `struct StepTelemetry`:
@@ -164,7 +176,7 @@
 
 ### Применение коррекций к номиналу
 
-- `inline void applyTiltKalmanCorrections(NavState &st)` — после `correctTilt`:
+- `inline void applyTiltKalmanCorrections(NavState &st)` — после `correctAccel`:
   вычитает только ошибки тангажа/крена `x[7..8]`, прибавляет `ba`/`bg`,
   обнуляет `x[7..14]`, вызывает `ins::apply_reset_covariance(P)`.
 - `inline void applyKalmanCorrections(NavState &st)` — после полной коррекции по
@@ -187,23 +199,25 @@
    `gyro_mag`.
 7. Если `gyro_mag > TILT_POL.gyro_off_rad_s` или `isBrakingManeuver(...)` —
    `st.tilt_maneuver_time = time_s`.
-8. `acc_att = evalAccelAttitude(...)`.
-9. `w_nav = navAngularRate(...)`; `w_rel = ins::relativeRate(...)`;
-   `rates = ins::eulerRates(...)`; `applyTiltRateBias(rates, tilt_trim)`;
-   `limitTiltDivergence(...)`; `att = ins::integrate(st.att, rates, st.rates_prev, dt)`.
-10. Обновление `st.V/lat/lon/alt/att`; сохранение производных
-    (`V_dot_prev`, `lat_dot_prev`, `lon_dot_prev`, `alt_dot_prev = V[1]`,
-    `rates_prev`, `time_prev`).
-11. `trimManeuverTilt(...)`.
-12. `C_cur = bodyToNavMatrix(новые att)`; `n_nav_cur = C_cur·f_body`;
+8. `w_nav = navAngularRate(...)`; `w_rel = ins::relativeRate(...)`;
+   `rates = ins::eulerRates(...)`; `limitTiltDivergence(...)`;
+   `att = ins::integrate(st.att, rates, st.rates_prev, dt)`.
+   *(Этап 1: вычет трима `applyTiltRateBias(rates, tilt_trim)` убран.)*
+9. Обновление `st.V/lat/lon/alt/att`; сохранение производных
+   (`V_dot_prev`, `lat_dot_prev`, `lon_dot_prev`, `alt_dot_prev = V[1]`,
+   `rates_prev`, `time_prev`).
+10. `C_cur = bodyToNavMatrix(новые att)`; `n_nav_cur = C_cur·f_body`;
     `ins::predict(dt, lat, alt, C_cur, n_nav_cur, att, x, P)`.
-13. Заполнение `telemetry` (время, `P_diag`, `ba`, `bg`).
-14. Если `shouldApplyAccelTilt(...)` — `applyAccelTiltCorrection(...)` +
-    `applyTiltKalmanCorrections(st)`, иначе `clearTiltKalmanErrors(st.x)`.
-15. `sns_ok = st.sns_guard.update(ref, time_s, kalman_cfg)`;
+11. Заполнение `telemetry` (время, `P_diag`, `ba`, `bg`).
+12. `f_meas = f_body + st.ba`; `z_accel = (Ĉ^T·a_вред + st.ba) − f_meas`.
+13. Если `shouldApplyAccelHorizon(...)` (тихий ДУС, не торможение,
+    `settle_s` истекло, `‖z‖ ≤ accel_gate_ms2`) — `ins::correctAccel(...)`
+    (оси X и Z тела) + `applyTiltKalmanCorrections(st)`, иначе
+    `clearTiltKalmanErrors(st.x)`.
+14. `sns_ok = st.sns_guard.update(ref, time_s, kalman_cfg)`;
     `manual = sns_guard.is_new_frame && !do_correction`;
     `apply_correction = do_correction && sns_ok`.
-16. При `apply_correction`:
+15. При `apply_correction`:
     - `bins = {lat, lon, alt, Vn, Vh, Ve, heading, pitch, roll}`;
     - `sns = {ref.lat, ref.lon, ref.alt, ref.vn, ref.vh, ref.ve,`
       `has_heading_ref ? ref.heading : att.heading, att.pitch, att.roll}`
@@ -213,9 +227,9 @@
     - заполнение телеметрии (инновация, статистика);
     - `sink.writeErrors(time_s, st.x)`; `applyKalmanCorrections(st)`;
       `sink.writeReference(makeReference(time_s, ref))`.
-17. Если `kalman_cfg.gnss_guard_log > 0.5` — сформировать `SnsGuardRecord` и
+16. Если `kalman_cfg.gnss_guard_log > 0.5` — сформировать `SnsGuardRecord` и
     `sink.writeGuard(...)`.
-18. `sink.writeResult(makeResult(time_s, st))` на каждом такте.
+17. `sink.writeResult(makeResult(time_s, st))` на каждом такте.
 
 Замечание: угол курса корректируется только при наличии эталона курса
 (`has_heading_ref` = найден `angle.dat`/`angle.data`).

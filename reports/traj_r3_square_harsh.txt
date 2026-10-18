@@ -1,0 +1,25 @@
+﻿traj r3 - square_harsh
+rows: 6599
+
+pos    8.3379e-002   4.3400e-002
+vel    1.4254e+000   1.8322e+000
+att    2.2272e-001   6.3100e-002
+ba     4.1019e-003   2.0000e-004
+bg     1.2067e-004   0.0000e+000
+
+per-column rms:
+  x0   rms=4.3470e-005  final=0.0000e+000
+  x1   rms=5.0964e-005  final=0.0000e+000
+  x2   rms=1.4442e-001  final=-4.3400e-002
+  x3   rms=1.4705e+000  final=3.6030e-001
+  x4   rms=7.0952e-001  final=2.5110e-001
+  x5   rms=1.8519e+000  final=-1.8322e+000
+  x6   rms=2.4405e-002  final=-2.1500e-002
+  x7   rms=2.6823e-001  final=-1.2800e-002
+  x8   rms=2.7616e-001  final=6.3100e-002
+  x9   rms=4.3905e-003  final=-1.0000e-004
+  x10  rms=9.6994e-004  final=1.0000e-004
+  x11  rms=5.5009e-003  final=2.0000e-004
+  x12  rms=1.5051e-004  final=0.0000e+000
+  x13  rms=1.0001e-005  final=0.0000e+000
+  x14  rms=1.4467e-004  final=0.0000e+000

@@ -1,0 +1,25 @@
+﻿traj r2 - square_noisefree
+rows: 6598
+
+pos    6.7430e-006   0.0000e+000
+vel    1.9257e-003   2.0000e-004
+att    0.0000e+000   0.0000e+000
+ba     0.0000e+000   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=1.1679e-005  final=0.0000e+000
+  x3   rms=3.3094e-003  final=0.0000e+000
+  x4   rms=2.0606e-004  final=-2.0000e-004
+  x5   rms=3.6164e-004  final=0.0000e+000
+  x6   rms=0.0000e+000  final=0.0000e+000
+  x7   rms=0.0000e+000  final=0.0000e+000
+  x8   rms=0.0000e+000  final=0.0000e+000
+  x9   rms=0.0000e+000  final=0.0000e+000
+  x10  rms=0.0000e+000  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

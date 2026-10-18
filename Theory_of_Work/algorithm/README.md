@@ -83,18 +83,18 @@ GUI (`src/gui/`) в этом руководстве не разбирается:
 5. `pos = integratePosition(...)` — широта/долгота/высота.
 6. `gyro_raw = gyro(row, bg)`, `V̇_body = Cᵀ·V̇`, `gyro_mag`.
 7. Отметка времени последнего манёвра, если `gyro_mag > порог` или торможение.
-8. `evalAccelAttitude(...)` — тангаж/крен по акселю и их доверие (σ).
-9. `w_nav = navAngularRate(...)`, `w_rel = relativeRate(gyro_raw, w_nav, C)`,
-   `rates = eulerRates(w_rel, pitch, roll)`, `integrate(...)` → новые углы.
-10. Обновление состояния; сохранение производных для трапеций.
-11. `trimManeuverTilt(...)` — сведение тангажа/крена к горизонту после манёвра.
-12. `ins::predict(...)` — предсказание фильтра по свежему номиналу.
-13. Если разрешено `shouldApplyAccelTilt(...)` — `correctTilt(...)` и
-    `applyTiltKalmanCorrections(st)`, иначе `clearTiltKalmanErrors(x)`.
-14. `SnsGuard::update(ref, time, cfg)` — валидация кадра и детектор молчания.
-15. При разрешённой коррекции (`do_correction && sns_ok`) — `ins::correct(...)`,
+8. `w_nav = navAngularRate(...)`, `w_rel = relativeRate(gyro_raw, w_nav, C)`,
+   `rates = eulerRates(w_rel, pitch, roll)`, `limitTiltDivergence(...)`,
+   `integrate(...)` → новые углы.
+9. Обновление состояния; сохранение производных для трапеций.
+10. `ins::predict(...)` — предсказание фильтра по свежему номиналу.
+11. Если разрешено `shouldApplyAccelHorizon(...)` — `correctAccel(...)` (горизонт
+    по осям X и Z тела) и `applyTiltKalmanCorrections(st)`, иначе
+    `clearTiltKalmanErrors(x)`.
+12. `SnsGuard::update(ref, time, cfg)` — валидация кадра и детектор молчания.
+13. При разрешённой коррекции (`do_correction && sns_ok`) — `ins::correct(...)`,
     запись ошибок и эталона, `applyKalmanCorrections(st)`.
-16. Запись лога защиты (`writeGuard`) и результата (`writeResult`).
+14. Запись лога защиты (`writeGuard`) и результата (`writeResult`).
 
 ## Конвенции (важно при чтении кода)
 

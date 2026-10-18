@@ -27,6 +27,16 @@ struct TiltManeuverPolicy
     double level_acc_rad = 1.5 * DEG_TO_RAD;
 
     double divergence_deadband_rad = 0.25 * DEG_TO_RAD;
+
+    // Этап 2 (R2). Гейт аксель-апдейта по модулю инновации, м/с².
+    //
+    // Модель аксель-апдейта принимает V̇ ≈ 0. Ошибка этого допущения равна
+    // неучтённому V̇ (в связанных осях) и в инновацию входит целиком, поэтому
+    // порог ограничивает именно манёвренное ускорение. Основной отбор тактов
+    // делают признаки манёвра (тихий ДУС, торможение, settle_s), а этот порог
+    // — грубая страховка от выбросов: 3 м/с² соответствуют ошибке наклона
+    // около 17°, то есть он не мешает сведению реальных ошибок выставки.
+    double accel_gate_ms2 = 3.0;
 };
 
 // ЭТАП 1 (R1) — УДАЛЕНО: TiltTrimState, trimDriftIncrement, trimManeuverTilt.
@@ -113,21 +123,21 @@ inline bool limitTiltDivergence(ins::AttitudeRates &rates,
     return true;
 }
 
-// Интегральная оценка дрейфа одной оси без прямой подтяжки угла (Этап 1).
-inline bool shouldApplyAccelTilt(double time_s,
-                                 double maneuver_time_s,
-                                 double gyro_mag,
-                                 bool acc_ok,
-                                 double acc_pitch,
-                                 double acc_roll,
-                                 const Vector &V_dot_body,
-                                 const ins::Attitude &att,
-                                 const ins::AttitudeRates &rates,
-                                 const TiltManeuverPolicy &pol = {})
+// Гейт аксель-апдейта (Этап 2, R2).
+//
+// Акселерометр служит отсчётом горизонта только когда аппарат не манёврит:
+// в развороте-разгоне f_б перестаёт быть направлением тяжести, и модель
+// h = Ĉ_б^нᵀ·a_вред + b̂a (V̇ ≈ 0) становится неверной.  Признаки манёвра —
+// те же, что и у прежнего контура: шумный/вращающийся ДУС, торможение по
+// продольной/вертикальной осям и окно settle_s после манёвра.  Порог
+// accel_gate_ms2 по модулю инновации — грубая страховка.
+inline bool shouldApplyAccelHorizon(double time_s,
+                                    double maneuver_time_s,
+                                    double gyro_mag,
+                                    double innov_mag,
+                                    const Vector &V_dot_body,
+                                    const TiltManeuverPolicy &pol = {})
 {
-    if (!acc_ok)
-        return false;
-
     if (gyro_mag > pol.gyro_off_rad_s)
         return false;
 
@@ -137,39 +147,10 @@ inline bool shouldApplyAccelTilt(double time_s,
     if ((time_s - maneuver_time_s) < pol.settle_s)
         return false;
 
-    const double dp = fabs(normalize_angle(acc_pitch - att.pitch));
-    const double dr = fabs(normalize_angle(acc_roll - att.roll));
-
-    // Глубокий «нос вниз» на торможении: аксель ≈ 0° не должен тянуть INS вверх.
-    const bool pitch_dynamic = (att.pitch < -3.0 * DEG_TO_RAD) &&
-                               (acc_pitch > -1.0 * DEG_TO_RAD) &&
-                               (dp > DEG_TO_RAD);
-    const bool roll_dynamic = (fabs(att.roll) > DEG_TO_RAD) &&
-                              (fabs(acc_roll) < 2.0 * DEG_TO_RAD) &&
-                              (dr > DEG_TO_RAD);
-
-    if (pitch_dynamic || roll_dynamic)
-        return false;
-
-    if (fabs(rates.pitch_dot) > 2.0 * DEG_TO_RAD ||
-        fabs(rates.roll_dot) > 2.0 * DEG_TO_RAD)
+    if (innov_mag > pol.accel_gate_ms2)
         return false;
 
     return true;
-}
-
-inline void applyAccelTiltCorrection(const ins::Attitude &att,
-                                     double pitch_meas,
-                                     double roll_meas,
-                                     double sig_pitch,
-                                     double sig_roll,
-                                     Vector &x,
-                                     Matrix &P)
-{
-    ins::correctTilt(att.pitch, att.roll,
-                     pitch_meas, roll_meas,
-                     sig_pitch, sig_roll,
-                     x, P);
 }
 
 inline void clearTiltKalmanErrors(Vector &x)

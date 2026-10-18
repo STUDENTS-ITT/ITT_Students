@@ -1,0 +1,25 @@
+﻿traj r2 - high_dynamics
+rows: 2987
+
+pos    4.0101e-002   2.1200e-002
+vel    4.0702e-001   4.7340e-001
+att    3.0504e-002   1.3300e-002
+ba     0.0000e+000   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=2.5876e-006  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=6.9457e-002  final=-2.1200e-002
+  x3   rms=4.9197e-001  final=-4.7340e-001
+  x4   rms=2.0873e-001  final=-8.5000e-002
+  x5   rms=4.5978e-001  final=1.5820e-001
+  x6   rms=1.7873e-002  final=-1.3300e-002
+  x7   rms=3.5202e-002  final=0.0000e+000
+  x8   rms=3.5111e-002  final=5.2000e-003
+  x9   rms=0.0000e+000  final=0.0000e+000
+  x10  rms=0.0000e+000  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

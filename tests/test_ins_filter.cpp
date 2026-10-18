@@ -66,9 +66,10 @@ private slots:
     void correctWithZeroInnovation();
     void correctReducesUncertainty();
     void correctAlignsState();
-    void correctTiltIsolatedFromPosition();
+    void correctAccelIsolatedFromPosition();
+    void correctAccelSeparatesBiasFromTilt();
     void resetCovarianceSymmetrizes();
-    void initialCovarianceIsDiagonal();
+    void initialCovarianceIsSymmetricWithTiltBiasCoupling();
 };
 
 void TestInsFilter::processNoiseDiagonal()
@@ -211,36 +212,88 @@ void TestInsFilter::correctAlignsState()
     QVERIFY(asymmetry(P, ins::KF_STATE) < 1e-18);
 }
 
-void TestInsFilter::correctTiltIsolatedFromPosition()
+void TestInsFilter::correctAccelIsolatedFromPosition()
 {
-    // correctTilt не должен трогать pos/vel/hdg (П2): строки K[0..6] обнулены.
+    // correctAccel не должен трогать pos/vel/hdg (П2): строки K[0..6] обнулены.
     Vector x(ins::KF_STATE, 0.0);
     Matrix P = makeP0();
     const Matrix P0 = P;
 
-    // Ненулевая корреляция углов с координатами — «протекание» проявится здесь.
-    for (int i = 0; i < ins::KF_STATE; i++)
+    // Реалистичная корреляция «ошибка скорости ↔ ошибка тангажа»: именно она
+    // «протекла» бы в x[3..5] через K = P·Hᵀ, если бы строки K[0..6] не
+    // обнулялись.  Пары подобраны так, чтобы P осталась положительно
+    // определённой (σ_vel = 2.5 м/с против σ_θ = 1°).
+    for (int i = 3; i < 6; i++)
     {
-        at(P, i, 7, ins::KF_STATE) = 1e-3;
-        at(P, 7, i, ins::KF_STATE) = 1e-3;
+        at(P, i, 7, ins::KF_STATE) = 0.01;
+        at(P, 7, i, ins::KF_STATE) = 0.01;
+        at(P, i, 8, ins::KF_STATE) = 0.01;
+        at(P, 8, i, ins::KF_STATE) = 0.01;
     }
 
-    const double pitch = 0.02;
-    ins::correctTilt(pitch, 0.0, 0.0, 0.0, 1e-3, 1e-3, x, P);
+    // Аппарат стоит ровно: C = I, тяжесть видна акселю по оси Y тела.
+    ins::Attitude att;
+    att.heading = 0.0;
+    att.pitch = 0.0;
+    att.roll = 0.0;
+    const Matrix C = bodyToNavMatrix(att.heading, att.pitch, att.roll);
+    const Vector f_nav = {0.0, 9.81, 0.0};
+
+    // Инновация отвечает ошибке тангажа 0.02 рад: при C = I h − y = g·δθ·e_x.
+    const Vector z = {9.81 * 0.02, 0.0, 0.0};
+    ins::correctAccel(C, f_nav, att, z, 1e-3, x, P);
 
     for (int i = 0; i < 7; i++)
     {
         QVERIFY(qAbs(x[i]) < 1e-18);
     }
-    // Оценка углов изменилась.
-    QVERIFY(std::fabs(x[7]) > 0.0);
+    // Невязка объяснена целиком: g·x[7] − x[9] = z.  Как она делится между
+    // углом и смещением — решает P₀, и при честной корреляции R3 аксель почти
+    // не двигает ba (направление измерения почти ортогонально разности
+    // «наклон − ba/g»); это разобрано в correctAccelSeparatesBiasFromTilt.
+    QVERIFY(x[7] > 0.01);
+    QVERIFY(qAbs(9.81 * x[7] - x[9] - 9.81 * 0.02) < 1e-2);
     QVERIFY(diagonalPositive(P, ins::KF_STATE));
 
-    // Ковариация координат не должна уменьшиться из-за tilt-коррекции.
+    // Ковариация координат не должна уменьшиться из-за аксель-коррекции.
     for (int i = 0; i < 3; i++)
     {
         QVERIFY(at(P, i, i, ins::KF_STATE) >= at(P0, i, i, ins::KF_STATE) - 1e-15);
     }
+}
+
+void TestInsFilter::correctAccelSeparatesBiasFromTilt()
+{
+    // Ошибка тангажа и смещение акселя дают инновацию вдоль одной оси тела,
+    // но столбцы H у них разные (∂h/∂θ = g, ∂h/∂ba = −1).  При заведомо
+    // точной выставке (малая σ угла) всё наблюдение должно уйти в смещение —
+    // это и есть R2: аксель-апдейт обязан уметь отдавать инновацию в ba.
+    Vector x(ins::KF_STATE, 0.0);
+    Matrix P = makeP0();
+    // Задаём блок (θ, ba_X) заново: при заведомо точной выставке
+    // (σ(θ) = 0.001 рад) вся невязка должна уйти в смещение σ(ba_X) = 0.05 м/с².
+    // Корреляцию R3 здесь обнуляем — иначе 2×2 получился бы не положительно
+    // определённым (P₀ рассчитана на согласованные σ).
+    at(P, 7, 7, ins::KF_STATE) = 1e-6;
+    at(P, 7, 9, ins::KF_STATE) = 0.0;
+    at(P, 9, 7, ins::KF_STATE) = 0.0;
+    at(P, 9, 9, ins::KF_STATE) = 0.05 * 0.05;
+
+    ins::Attitude att;
+    att.heading = 0.0;
+    att.pitch = 0.0;
+    att.roll = 0.0;
+    const Matrix C = bodyToNavMatrix(att.heading, att.pitch, att.roll);
+    const Vector f_nav = {0.0, 9.81, 0.0};
+
+    // Истина: b̂a = 0, аппарат ровный.  Оценка завысила b̂a_X на 0.05 м/с²,
+    // значит h − y = +0.05 по оси X тела.
+    const Vector z = {0.05, 0.0, 0.0};
+    ins::correctAccel(C, f_nav, att, z, 1e-3, x, P);
+
+    // Инъекция смещения — сложение x[9], ошибка была +0.05, значит x[9] ≈ −0.05.
+    QVERIFY(x[9] < -0.04);
+    QVERIFY(qAbs(x[7]) < 0.005);
 }
 
 void TestInsFilter::resetCovarianceSymmetrizes()
@@ -258,19 +311,42 @@ void TestInsFilter::resetCovarianceSymmetrizes()
     QCOMPARE(at(P, 4, 4, ins::KF_STATE), 1e-15);
 }
 
-void TestInsFilter::initialCovarianceIsDiagonal()
+void TestInsFilter::initialCovarianceIsSymmetricWithTiltBiasCoupling()
 {
-    const Matrix P = nav::initialCovariance(0.0);
+    const double lat = 22.4 * DEG_TO_RAD;
+    const Matrix P = nav::initialCovariance(lat);
     QCOMPARE(P.size(), std::size_t(ins::KF_STATE * ins::KF_STATE));
 
     for (int i = 0; i < ins::KF_STATE; i++)
     {
+        QVERIFY(at(P, i, i, ins::KF_STATE) > 0.0);
         for (int j = 0; j < ins::KF_STATE; j++)
         {
-            if (i != j) QCOMPARE(at(P, i, j, ins::KF_STATE), 0.0);
+            if (i == j) continue;
+            // R3: единственные ненулевые внедиагональные элементы — связь
+            // «наклон ↔ горизонтальное смещение акселя», внесённая выставкой.
+            const bool coupled = (i == 7 && j == 9) || (i == 9 && j == 7) ||
+                                 (i == 8 && j == 11) || (i == 11 && j == 8);
+            if (!coupled) QCOMPARE(at(P, i, j, ins::KF_STATE), 0.0);
         }
-        QVERIFY(at(P, i, i, ins::KF_STATE) > 0.0);
     }
+
+    QVERIFY(asymmetry(P, ins::KF_STATE) < 1e-18);
+
+    // Знаки связи: тангаж завышен вместе с ba_X, крен — в противофазе с ba_Z.
+    QVERIFY(at(P, 7, 9, ins::KF_STATE) > 0.0);
+    QVERIFY(at(P, 8, 11, ins::KF_STATE) < 0.0);
+
+    // Величина связи — σ_ba²/g (g выведен в самой матрице).
+    const double g = normalGravity(lat, 0.0);
+    const double expected = at(P, 9, 9, ins::KF_STATE) / g;
+    QVERIFY(std::fabs(at(P, 7, 9, ins::KF_STATE) - expected) < expected * 1e-9);
+    QVERIFY(std::fabs(at(P, 8, 11, ins::KF_STATE) + expected) < expected * 1e-9);
+
+    // Связь не выводит блок «тангаж/ba_X» из положительной определённости.
+    const double det_pt = at(P, 7, 7, ins::KF_STATE) * at(P, 9, 9, ins::KF_STATE) -
+                          at(P, 7, 9, ins::KF_STATE) * at(P, 9, 7, ins::KF_STATE);
+    QVERIFY(det_pt > 0.0);
 }
 
 QTEST_MAIN(TestInsFilter)

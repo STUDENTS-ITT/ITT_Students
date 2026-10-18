@@ -102,16 +102,6 @@ inline data_io::NavReference makeReference(double time, const SnsSample &ref)
     return r;
 }
 
-// Оценка тангажа/крена по акселю и адаптивный шум измерений.
-struct AccelAttitude
-{
-    bool ok = false;
-    double pitch = 0.0;
-    double roll = 0.0;
-    double sig_pitch = 1e6 * DEG_TO_RAD;
-    double sig_roll = 1e6 * DEG_TO_RAD;
-};
-
 // Диагностика одного такта для GUI (телеметрия).
 //
 // Заполняется только если передан непустой указатель, поэтому на консольном
@@ -129,52 +119,11 @@ struct StepTelemetry
     Vector bg = Vector(3, 0.0);
 };
 
-inline AccelAttitude evalAccelAttitude(const Vector &f_body, const Vector &V_dot_body,
-                                       double lat, double alt, const Vector &gyro_raw)
-{
-    const double ACC_TOLERANCE = 0.2;
-    // Согласовано с TiltManeuverPolicy::gyro_off_rad_s: аксель годится как
-    // отсчёт тангажа/крена только когда гироскоп молчит.
-    const double GYRO_TOLERANCE = 0.005;
-    const double SIG_TILT_MIN = 0.5 * DEG_TO_RAD;
-    const double SIG_TILT_MAX = 5.0 * DEG_TO_RAD;
-    const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;
-
-    AccelAttitude out;
-
-    const double ax = f_body[0] - V_dot_body[0];
-    const double ay = f_body[1] - V_dot_body[1];
-    const double az = f_body[2] - V_dot_body[2];
-
-    const double acc_mag = sqrt(ax * ax + ay * ay + az * az);
-    const double acc_error = fabs(acc_mag - calculate_g(lat, alt));
-
-    const double gyro_mag = sqrt(gyro_raw[0] * gyro_raw[0] +
-                                 gyro_raw[1] * gyro_raw[1] +
-                                 gyro_raw[2] * gyro_raw[2]);
-
-    out.ok = (acc_error <= ACC_TOLERANCE) && (gyro_mag <= GYRO_TOLERANCE);
-    out.pitch = atan2(ax, ay);
-    out.roll = -atan2(az, ay);
-
-    if (!out.ok)
-    {
-        out.sig_pitch = SIG_TILT_IGNORE;
-        out.sig_roll = SIG_TILT_IGNORE;
-        return out;
-    }
-
-    const double trust_acc = 1.0 - (acc_error / ACC_TOLERANCE);
-    const double trust_gyro = 1.0 - (gyro_mag / GYRO_TOLERANCE);
-    const double trust = fmax(0.05, trust_acc * trust_gyro);
-    const double sig_tilt = SIG_TILT_MIN + (1.0 - trust) * (SIG_TILT_MAX - SIG_TILT_MIN);
-
-    out.sig_pitch = sig_tilt;
-    out.sig_roll = sig_tilt;
-    return out;
-}
-
-// Применение коррекции KF только по pitch/roll (после correctTilt).
+// Применение коррекции KF только по pitch/roll (после correctAccel).
+//
+// Обслуживает аксель-апдейт (200 Гц): инъекция ошибок тангажа/крена и
+// смещений акселя/гироскопа.  Имя сохранено исторически (контур «аксель как
+// горизонт»), смысл тот же: приведение номинала к отсчёту акселерометра.
 inline void applyTiltKalmanCorrections(NavState &st)
 {
     st.att.pitch = normalize_angle(st.att.pitch - st.x[7]);
@@ -220,7 +169,7 @@ inline void applyKalmanCorrections(NavState &st)
 // Один такт счисления БИНС.
 // На каждом шаге:
 //   1. Интегрирование скоростей, координат, ориентации по данным ИМУ (200 Гц).
-//   2. Коррекция pitch/roll по акселю (200 Гц, correctTilt).
+//   2. Коррекция pitch/roll по акселю как горизонту (200 Гц, correctAccel).
 //   3. Если do_correction — коррекция по СНС (1 Гц): координаты, скорости, курс.
 //   4. Запись результатов в приёмник sink.
 // telemetry — необязательный указатель на диагностику для GUI; при nullptr
@@ -262,9 +211,6 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     if (gyro_mag > TILT_POL.gyro_off_rad_s || isBrakingManeuver(V_dot_body, TILT_POL))
         st.tilt_maneuver_time = time_s;
 
-    const AccelAttitude acc_att =
-        evalAccelAttitude(f_body, V_dot_body, st.lat, st.alt, gyro_raw);
-
     // Интегрирование углов ориентации (гиро).
     const Vector w_nav = navAngularRate(st.lat, V, R_EARTH + st.alt);
     const Vector w_rel = ins::relativeRate(gyro_raw, w_nav, C);
@@ -272,8 +218,8 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
     // Этап 1 (R1): вычет трима из скоростей Эйлера (applyTiltRateBias) УДАЛЁН.
     // Это был скрытый оцениватель дрейфа вне фильтра: конкурировал с
     // x[12..14], не имел ковариации и не выводился ни в телеметрию, ни в
-    // runs.db. Дрейф теперь идёт через номинал bg (injectTrimDrift ниже),
-    // а limitTiltDivergence остаётся единственным ограничителем интегрирования.
+    // runs.db. Дрейф уходит через номинал bg, а limitTiltDivergence остаётся
+    // единственным ограничителем интегрирования.
     limitTiltDivergence(rates, st.att, f_body, gyro_mag, V_dot_body, TILT_POL);
     const ins::Attitude att = ins::integrate(st.att, rates, st.rates_prev, dt);
 
@@ -311,13 +257,31 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
             telemetry->P_diag[i] = at(st.P, i, i, ins::KF_STATE);
     }
 
-    if (shouldApplyAccelTilt(time_s, st.tilt_maneuver_time, gyro_mag,
-                             acc_att.ok, acc_att.pitch, acc_att.roll,
-                             V_dot_body, st.att, rates, TILT_POL))
+    // Аксель-апдейт (Этап 2, R2): согласованное измерение удельной силы.
+    //
+    //   h(x̂) = Ĉ_б^нᵀ·a_вред̂ + b̂a   — модель (V̇ ≈ 0),
+    //   y     = f_б^изм               — сырой отсчёт акселя (со смещением),
+    //   z     = h − y.
+    //
+    // Слагаемое V̇ в модели не берётся из БИНС: там V̇ сам построен по f_б,
+    // и подстановка обращает z в тождественный нуль (вывод — §5
+    // docs/bias_estimation_stages.md).  Отброшенное V̇ ограничивается гейтом,
+    // а в само измерение идут только оси X и Z тела — перпендикулярные
+    // тяжести, то есть горизонт (см. H_accel_matrix).  Ось Y (модуль
+    // удельной силы) не используется: её единственный сигнал — b̂a_Y, и
+    // неучтённое V̇_Y уходит туда целиком.
+    const Vector f_meas = vector_sum(f_body, st.ba);  // f_body уже без b̂a
+    const Vector z_accel = vector_diff(
+        vector_sum(navToBody(C_cur, a_harm), st.ba), f_meas);
+    const double z_accel_mag = sqrt(z_accel[0] * z_accel[0] +
+                                    z_accel[1] * z_accel[1] +
+                                    z_accel[2] * z_accel[2]);
+
+    if (shouldApplyAccelHorizon(time_s, st.tilt_maneuver_time, gyro_mag,
+                                z_accel_mag, V_dot_body, TILT_POL))
     {
-        applyAccelTiltCorrection(st.att, acc_att.pitch, acc_att.roll,
-                                 acc_att.sig_pitch, acc_att.sig_roll,
-                                 st.x, st.P);
+        ins::correctAccel(C_cur, a_harm, st.att, z_accel,
+                          ins::kalman_cfg.sig_a * sqrt(dt), st.x, st.P);
         applyTiltKalmanCorrections(st);
     }
     else

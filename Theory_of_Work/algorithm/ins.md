@@ -83,8 +83,8 @@ time_s  timestamp_ns  wx  wy  wz  ax  ay  az
 
 - `constexpr int KF_STATE = 15;` — размер вектора состояния.
 - `constexpr int KF_MEAS = 9;` — размер вектора измерений.
-- `constexpr int KF_TILT_MEAS = 2;` — размер измерений tilt-контура (позже в
-  файле).
+- `constexpr int KF_ACCEL_MEAS = 2;` — размер измерений аксель-контура
+  (горизонт по осям X и Z тела; позже в файле).
 
 ### Вектор состояния `x` (15)
 
@@ -119,7 +119,7 @@ time_s  timestamp_ns  wx  wy  wz  ax  ay  az
 | `sig_g` | `2.12428e-02` | шум гироскопа, рад/√с |
 | `sig_a` | `1.5276e+00` | шум акселерометра, м/с²/√с |
 | `sig_bg` | `1.05526e-05` | дрейф смещения гироскопа, рад/с/√с |
-| `sig_ba` | `1.10162e-05` | дрейф смещения акселерометра, м/с²/√с |
+| `sig_ba` | `1.96133e-04` | дрейф смещения акселерометра, м/с²/√с (паспорт, Этап 3) |
 | `sig_pos` | `2.64401e-08` | шум позиции СНС, рад |
 | `sig_h` | `5.0` | шум высоты СНС, м |
 | `sig_v` | `4.81061e-02` | шум скорости СНС, м/с |
@@ -213,8 +213,8 @@ time_s  timestamp_ns  wx  wy  wz  ax  ay  az
     блока `P` 9×9). В консоли передаётся `nullptr`, поэтому вычислительный путь
     и выходные файлы не меняются.
   - Параметры `sig_pitch`/`sig_roll` в кадре СНС обычно равны
-    `1e6·DEG_TO_RAD` (углы тангажа/крена на этом кадре не измеряются — они идут
-    из tilt-контура).
+    `1e6·DEG_TO_RAD` (углы тангажа/крена на этом кадре не измеряются — они
+    обновляются аксель-контуром по горизонту, см. ниже).
 
 ### Патч результатов
 
@@ -222,13 +222,23 @@ time_s  timestamp_ns  wx  wy  wz  ax  ay  az
 оценки `x` — это **ошибки**, они **вычитаются** из номинала (БИНС), а смещения
 `x[9..14]` **прибавляются** к `ba`/`bg`.
 
-### Tilt-контур (только тангаж/крен)
+### Аксель-контур (горизонт, Этап 2 R2)
 
-- `inline Matrix R_tilt_matrix(double sig_pitch, double sig_roll)` — `R` 2×2.
-- `inline Matrix H_tilt_matrix()` — `H` 2×15: `H[0][7] = 1`, `H[1][8] = 1`.
-- `inline void correctTilt(double pitch_bins, double roll_bins, double pitch_meas, double roll_meas, double sig_pitch, double sig_roll, Vector &x, Matrix &P)` —
-  коррекция только по тангажу/крену (вызывается на каждом такте ИМУ, 200 Гц):
-  - измерение `z = {norm(pitch_bins − pitch_meas), norm(roll_bins − roll_meas)}`;
+- `inline Matrix R_accel_matrix(double sig_a_sample)` — `R` 2×2,
+  `R = sig_a_sample²·I`; вызывающему передаётся `sig_a·√dt`.
+- `inline Matrix H_accel_matrix(const Matrix &C, const Vector &f_nav, const Attitude &att)` —
+  `H` 2×15 по модели `h(x̂) = Ĉ_б^нᵀ·a_вред + b̂a` (строки — связанные оси X и
+  Z, `KF_ACCEL_ROW = {0, 2}`):
+  - `∂h/∂x[6..8] = −Ĉ_б^нᵀ·(n_i × f̂_н)` (`n_ψ = (0,−1,0)`,
+    `n_θ = (−sinψ, 0, cosψ)`, `n_γ` — первый столбец `C`);
+  - `∂h/∂x[9..11] = −I` (знак минус: `h` содержит `+b̂a`, а инъекция смещения —
+    сложение).
+- `inline void correctAccel(const Matrix &C, const Vector &f_nav, const Attitude &att, const Vector &z_body, double sig_a_sample, Vector &x, Matrix &P)` —
+  коррекция по горизонту (вызывается на тактах ИМУ, где открыт гейт
+  `shouldApplyAccelHorizon`, 200 Гц):
+  - измерение берётся по осям `KF_ACCEL_ROW` из трёхмерной инновации
+    `z_body` (ось Y — модуль удельной силы — исключена: её единственный сигнал
+    `b̂a_Y` полностью забирает неучтённое `V̇_Y`);
   - `K` считается как обычно, но строки `K` для `x[0..6]` **обнуляются**
     (развязка от координат/скорости/курса: акселерометрическая коррекция должна
     трогать только ошибки углов и смещений датчиков `x[7..14]`);

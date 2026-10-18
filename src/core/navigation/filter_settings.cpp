@@ -52,6 +52,7 @@ std::vector<FieldBinding> tiltBindings(TiltManeuverPolicy &p)
         {"tilt/brake_body_accel", &p.brake_body_accel},
         {"tilt/level_acc_rad", &p.level_acc_rad},
         {"tilt/divergence_deadband_rad", &p.divergence_deadband_rad},
+        {"tilt/accel_gate_ms2", &p.accel_gate_ms2},
     };
 }
 
@@ -290,6 +291,7 @@ std::vector<SettingDescriptor> filterSettingDescriptors()
     add("tilt/brake_body_accel", "Порог торможения (tanгаж/крен)", "м/с²", 0.0, 50.0);
     add("tilt/level_acc_rad", "Порог «аксель смотрит в горизонт»", "рад", 0.0, 1.0);
     add("tilt/divergence_deadband_rad", "Мёртвая зона расхождения", "рад", 0.0, 1.0);
+    add("tilt/accel_gate_ms2", "Гейт аксель-апдейта по инновации", "м/с²", 0.0, 50.0);
 
     add("run/align_time_override_s", "Выставка (0 — из StartupNav.ini)", "с", 0.0, 1e5);
     add("run/align_fallback_s", "Выставка без StartupNav.ini", "с", 0.0, 1e5);

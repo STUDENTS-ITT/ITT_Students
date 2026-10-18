@@ -35,7 +35,11 @@ struct KalmanConfig
     double sig_g   = 2.12428e-02;           // шум гироскопа, рад/√с (run_hk №6)
     double sig_a   = 1.5276e+00;            // шум акселерометра, м/с²/√с (run_hk №6)
     double sig_bg  = 1.05526e-05;           // дрейф смещения гироскопа, рад/с/√с (run_hk №6)
-    double sig_ba  = 1.10162e-05;           // дрейф смещения акселерометра, м/с²/√с (run_hk №6)
+    // Этап 2 (R3): было 1.10162e-05 (0.0011 мг/√с) — на два порядка ниже
+    // паспорта наборов (0.02 мг/√с), из-за чего P(ba) почти не росла и
+    // фильтр не мог учить смещение. 1 мг = 1e-3·G_EQ, значит
+    // 0.02 мг/√с = 1.96133e-04 м/с²/√с.
+    double sig_ba  = 1.96133e-04;           // дрейф смещения акселерометра, м/с²/√с (паспорт)
     double sig_pos = 2.64401e-08;           // СНС позиция, рад (run_hk №6)
     double sig_h   = 5.0;                   // СНС высота, м
     double sig_v   = 4.81061e-02;           // СНС скорость, м/с (run_hk №6)
@@ -317,71 +321,122 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
         KF_STATE);
 }
 
-// Размерность вектора измерений для коррекции только по тангажу/крену.
-constexpr int KF_TILT_MEAS = 2;
+// Измерение акселерометра — только две оси, перпендикулярные силе тяжести
+// (связанные X «вперёд» и Z «вправо», индексы 0 и 2 трёхмерного вектора
+// удельной силы).  Ось Y («вверх», индекс 1) в измерение не входит.
+constexpr int KF_ACCEL_MEAS = 2;
+constexpr int KF_ACCEL_ROW[KF_ACCEL_MEAS] = {0, 2};
 
-inline Matrix R_tilt_matrix(double sig_pitch, double sig_roll)
+inline Matrix R_accel_matrix(double sig_a_sample)
 {
-    Matrix R(KF_TILT_MEAS * KF_TILT_MEAS, 0);
-    at(R, 0, 0, KF_TILT_MEAS) = sig_pitch * sig_pitch;
-    at(R, 1, 1, KF_TILT_MEAS) = sig_roll * sig_roll;
+    Matrix R(KF_ACCEL_MEAS * KF_ACCEL_MEAS, 0);
+    for (int i = 0; i < KF_ACCEL_MEAS; i++)
+        at(R, i, i, KF_ACCEL_MEAS) = sig_a_sample * sig_a_sample;
     return R;
 }
 
-inline Matrix H_tilt_matrix()
+// Матрица наблюдения аксель-апдейта (2×15) для модели
+//   h(x̂) = Ĉ_б^нᵀ·f̂_н + b̂a,     f̂_н = a_вред(φ̂, ĥ, V̂)   (V̇ ≈ 0),
+// где измерение — сырой отсчёт акселя y = f_б^изм, включающий истинное
+// смещение.  Слагаемое V̇ в модели принципиально не берётся из БИНС: там V̇
+// сам построен по f_б, и подстановка делает инновацию тождественным нулём
+// (см. docs/bias_estimation_stages.md, §5).  Вместо этого такты, где
+// V̇ ≉ 0, отбрасываются гейтом вызывающего кода.
+//
+// Почему ось Y исключена.  Модель с V̇ ≈ 0 верна лишь приближённо, и
+// неучтённое V̇ попадает в невязку как Ĉ·V̇.  По осям X и Z это добавка
+// мала на фоне полезного сигнала (поворот силы тяжести при наклоне,
+// g·δθ ~ 0.17 м/с² на градус), а по оси Y полезного сигнала нет вовсе:
+// там ĥ_Y = g + b̂a_Y, то есть вся невязка есть сумма искомого b̂a_Y и
+// неучтённого V̇_Y.  Наборы с набором/сбросом высоты дают V̇_Y ~ 0.04 м/с²
+// и уводят b̂a_Y на единицы мг за время переходного процесса.  Поэтому
+// измерение трактуется как горизонт (направление силы тяжести), а не как
+// гравиметр (её модуль); вертикаль оценивается выставкой и каналом СНС.
+//
+// Ненулевые блоки — только ошибки углов (6..8) и смещения акселя (9..11):
+// вклад координат и скорости (градиент силы тяжести, Кориолис) на два-три
+// порядка ниже шума акселя и в S неразличим, поэтому в H не заводится.
+//
+// Знаки.  Соглашение о состоянии — как в Fj_matrix и в инъекции коррекций
+// (applyTiltKalmanCorrections): углы вычитаются, смещения складываются.
+// Отсюда
+//   ∂h/∂x[6..8] = −Ĉ_б^нᵀ·(n_i × f̂_н),
+//   ∂h/∂x[9..11] = −I,
+// где n_ψ = (0,−1,0), n_θ = (−sinψ, 0, cosψ), n_γ — первый столбец Ĉ_б^н
+// (те же оси поворота, что и в Fj_matrix).  Знак −I у смещений: h
+// предсказывает *измеренный* аксель (содержит +b̂a), а инъекция смещения —
+// сложение, поэтому невязка и столбец H входят с обратным знаком.
+inline Matrix H_accel_matrix(const Matrix &C, const Vector &f_nav, const Attitude &att)
 {
-    Matrix H(KF_TILT_MEAS * KF_STATE, 0);
-    at(H, 0, 7, KF_STATE) = 1.0;
-    at(H, 1, 8, KF_STATE) = 1.0;
+    Matrix H(KF_ACCEL_MEAS * KF_STATE, 0);
+
+    const Vector n_psi = {0.0, -1.0, 0.0};
+    const Vector n_theta = {-sin(att.heading), 0.0, cos(att.heading)};
+    const Vector n_gamma = {at(C, 0, 0, 3), at(C, 1, 0, 3), at(C, 2, 0, 3)};
+    const Vector n_axes[3] = {n_psi, n_theta, n_gamma};
+
+    for (int k = 0; k < 3; k++)
+    {
+        // Знак минус: при повороте корпуса на δu вектор C_б^нᵀ·f̂_н
+        // поворачивается на −(n_u × f̂_н) (вывод в комментарии выше).
+        const Vector d = navToBody(C, vector_product(n_axes[k], f_nav));
+        for (int m = 0; m < KF_ACCEL_MEAS; m++)
+            at(H, m, 6 + k, KF_STATE) = -d[KF_ACCEL_ROW[m]];
+    }
+
+    for (int m = 0; m < KF_ACCEL_MEAS; m++)
+        at(H, m, 9 + KF_ACCEL_ROW[m], KF_STATE) = -1.0;
+
     return H;
 }
 
-// Коррекция только pitch/roll (на каждом такте ИМУ, 200 Гц).
-inline void correctTilt(double pitch_bins, double roll_bins,
-                        double pitch_meas, double roll_meas,
-                        double sig_pitch, double sig_roll,
-                        Vector &x, Matrix &P)
+// Коррекция по акселерометру (на каждом такте ИМУ, 200 Гц).
+//
+// z_body — инновация h(x̂) − y в связанных осях (trëхмерный вектор удельной
+// силы).  В измерение берутся только оси KF_ACCEL_ROW (горизонт); модуль
+// инновации вызывает гейтирующий код до вызова (см. trajectory.h), поэтому
+// здесь только собственно фильтровый шаг.
+inline void correctAccel(const Matrix &C, const Vector &f_nav, const Attitude &att,
+                         const Vector &z_body, double sig_a_sample,
+                         Vector &x, Matrix &P)
 {
-    Vector z = {normalize_angle(pitch_bins - pitch_meas),
-                normalize_angle(roll_bins - roll_meas)};
-
-    const Matrix H = H_tilt_matrix();
+    const Matrix H = H_accel_matrix(C, f_nav, att);
     const Matrix HT = transpose_m(H, KF_STATE);
 
-    const Matrix P_HT = multiply_matrix(P, HT, KF_STATE, KF_TILT_MEAS);
+    const Matrix P_HT = multiply_matrix(P, HT, KF_STATE, KF_ACCEL_MEAS);
     const Matrix S = matrix_sum(
-        multiply_matrix(multiply_matrix(H, P, KF_STATE, KF_STATE), HT, KF_STATE, KF_TILT_MEAS),
-        R_tilt_matrix(sig_pitch, sig_roll), KF_TILT_MEAS);
+        multiply_matrix(multiply_matrix(H, P, KF_STATE, KF_STATE), HT, KF_STATE, KF_ACCEL_MEAS),
+        R_accel_matrix(sig_a_sample), KF_ACCEL_MEAS);
 
-    Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_TILT_MEAS), KF_TILT_MEAS, KF_TILT_MEAS);
+    Matrix K = multiply_matrix(P_HT, return_matrix(S, KF_ACCEL_MEAS), KF_ACCEL_MEAS, KF_ACCEL_MEAS);
 
-    // Развязка tilt-контура от координат/скорости/курса (П2):
-    // акселерометрическая коррекция должна трогать только ошибки углов и
-    // смещений датчиков (x[7..14]).  Строки K для x[0..6] обнуляем, чтобы
-    // корреляционные члены P·Hᵀ не «протекали» в непогашенные ошибки
-    // pos/vel/hdg, которые живут между кадрами СНС.
+    // Развязка аксель-контура от координат/скорости/курса (П2, сохранено с
+    // прежнего tilt-контура): акселерометрическое сведение трогает только
+    // ошибки углов тангажа/крена и смещений датчиков (x[7..14]).  Строки K
+    // для x[0..6] обнуляем, чтобы корреляционные члены P·Hᵀ не «протекали»
+    // в непогашенные ошибки pos/vel/hdg, которые живут между кадрами СНС.
     for (int r = 0; r < 7; r++)
-        for (int c = 0; c < KF_TILT_MEAS; c++)
-            at(K, r, c, KF_TILT_MEAS) = 0.0;
+        for (int c = 0; c < KF_ACCEL_MEAS; c++)
+            at(K, r, c, KF_ACCEL_MEAS) = 0.0;
 
-    Vector innov = vector_diff(z, multiply_m(H, x, KF_STATE));
-    innov[0] = normalize_angle(innov[0]);
-    innov[1] = normalize_angle(innov[1]);
-
-    x = vector_sum(x, multiply_m(K, innov, KF_TILT_MEAS));
+    const Vector pred = multiply_m(H, x, KF_STATE);
+    Vector innov(KF_ACCEL_MEAS, 0.0);
+    for (int m = 0; m < KF_ACCEL_MEAS; m++)
+        innov[m] = z_body[KF_ACCEL_ROW[m]] - pred[m];
+    x = vector_sum(x, multiply_m(K, innov, KF_ACCEL_MEAS));
 
     // Коррекция ковариации в Joseph-форме (см. correct): симметрична и
     // сохраняет положительную полуопределённость P.
     const Matrix E_KH = matrix_diff(
         E_matrix(KF_STATE),
-        multiply_matrix(K, H, KF_TILT_MEAS, KF_STATE),
+        multiply_matrix(K, H, KF_ACCEL_MEAS, KF_STATE),
         KF_STATE);
     const Matrix E_KH_T = transpose_m(E_KH, KF_STATE);
-    const Matrix R_tilt = R_tilt_matrix(sig_pitch, sig_roll);
-    const Matrix KR = multiply_matrix(K, R_tilt, KF_TILT_MEAS, KF_TILT_MEAS);
+    const Matrix R_accel = R_accel_matrix(sig_a_sample);
+    const Matrix KR = multiply_matrix(K, R_accel, KF_ACCEL_MEAS, KF_ACCEL_MEAS);
     P = matrix_sum(
         multiply_matrix(multiply_matrix(E_KH, P, KF_STATE, KF_STATE), E_KH_T, KF_STATE, KF_STATE),
-        multiply_matrix(KR, transpose_m(K, KF_TILT_MEAS), KF_TILT_MEAS, KF_STATE),
+        multiply_matrix(KR, transpose_m(K, KF_ACCEL_MEAS), KF_ACCEL_MEAS, KF_STATE),
         KF_STATE);
 }
 

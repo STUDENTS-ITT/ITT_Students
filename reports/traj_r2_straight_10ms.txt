@@ -1,0 +1,25 @@
+﻿traj r2 - straight_10ms
+rows: 3996
+
+pos    2.0436e-002   6.6000e-003
+vel    2.2703e-001   1.3480e-001
+att    6.0055e-003   3.4000e-003
+ba     9.1333e-007   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=3.5396e-002  final=-6.6000e-003
+  x3   rms=2.7193e-001  final=2.0800e-002
+  x4   rms=6.9613e-002  final=-1.1830e-001
+  x5   rms=2.7537e-001  final=-1.3480e-001
+  x6   rms=6.8225e-003  final=3.4000e-003
+  x7   rms=6.2595e-003  final=-7.0000e-004
+  x8   rms=4.7402e-003  final=1.3000e-003
+  x9   rms=1.5819e-006  final=0.0000e+000
+  x10  rms=0.0000e+000  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

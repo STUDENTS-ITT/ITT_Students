@@ -66,6 +66,7 @@ void ParamsTableModel::rebuild()
     bind("tilt/brake_body_accel", &settings_.tilt.brake_body_accel);
     bind("tilt/level_acc_rad", &settings_.tilt.level_acc_rad);
     bind("tilt/divergence_deadband_rad", &settings_.tilt.divergence_deadband_rad);
+    bind("tilt/accel_gate_ms2", &settings_.tilt.accel_gate_ms2);
 
     // run
     bind("run/align_time_override_s", &settings_.align_time_override_s);
