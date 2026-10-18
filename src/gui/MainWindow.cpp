@@ -1264,16 +1264,31 @@ QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
     traj.widget = plot_trajectory_;
     blocks.push_back(traj);
 
-    // Временной ряд одной величины: оценка и истина на одном поле.
+    // Временной ряд одной величины: оценка и истина на одном поле. После
+    // графика величины добавляется её ошибочный ряд — знаковое отклонение от
+    // опоры в метрах/градусах/м·с⁻¹ (единицы таблицы отклонений).
     const auto add_quantity = [this, &blocks](int column) {
         const QVector<PlotSeries> s = quantitySeries(column);
-        if (s.isEmpty()) return;
-        PdfReport::PlotBlock b;
-        b.caption = quantityTitle(column);
-        b.series = decimateForReport(s);
-        b.x_label = tr("Время, с");
-        b.y_label = quantityUnit(column);
-        blocks.push_back(b);
+        if (!s.isEmpty())
+        {
+            PdfReport::PlotBlock b;
+            b.caption = quantityTitle(column);
+            b.series = decimateForReport(s);
+            b.x_label = tr("Время, с");
+            b.y_label = quantityUnit(column);
+            blocks.push_back(b);
+        }
+
+        // Окно выставки для графика ошибок не режем: на графике должна быть
+        // видна сходимость фильтра, в отличие от таблицы отклонений.
+        const QVector<PlotSeries> e = PdfReport::errorSeries(series_, truth_, column);
+        if (e.isEmpty()) return;
+        PdfReport::PlotBlock eb;
+        eb.caption = tr("Ошибка: %1").arg(quantityTitle(column));
+        eb.series = decimateForReport(e);
+        eb.x_label = tr("Время, с");
+        eb.y_label = PdfReport::errorUnit(column);
+        blocks.push_back(eb);
     };
 
     add_quantity(RunSeries::Lat);

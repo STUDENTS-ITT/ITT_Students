@@ -32,6 +32,10 @@ constexpr int kMarginPt = 40;
 // отрисовкой; содержимое возвращается обратно сразу после renderTo.
 PlotView *g_plot = nullptr;
 
+// Цвет ряда ошибок на графиках ошибок: красный читается как «отклонение» и не
+// смешивается с зелёным цветом истины в графиках величин.
+const QColor kErrorColor(200, 40, 40);
+
 // Названия компонент вектора ошибок — те же, что в легенде графика.
 const char *componentName(int i)
 {
@@ -204,27 +208,98 @@ const char *quantityName(int column)
     }
 }
 
-// Модуль отклонения одной величины от опоры в единицах таблицы: широта и
-// долгота переводятся в метры, курс берётся по кратчайшей дуге, остальные
-// величины — в своих единицах (метры, м/с).
-double deviationOf(const RunSeries::Row &row, const double *ref, int column)
+// Знаковое отклонение величины от опоры в единицах таблицы: широта — на север,
+// долгота — на восток (обе в метрах), курс — по кратчайшей дуге, остальные
+// величины — в своих единицах. Модуль берётся в deviationOf, знак нужен графику
+// ошибок (PdfReport::errorSeries), чтобы на графике была видна сторона ошибки.
+double signedDeviationOf(const RunSeries::Row &row, const double *ref, int column)
 {
     switch (column)
     {
     case RunSeries::Lat:
-        return std::abs(row.result[RunSeries::Lat] - ref[RunSeries::Lat]) * 111000.0;
+        return (row.result[RunSeries::Lat] - ref[RunSeries::Lat]) * 111000.0;
     case RunSeries::Lon:
-        return std::abs(row.result[RunSeries::Lon] - ref[RunSeries::Lon]) * 111000.0 *
+        return (row.result[RunSeries::Lon] - ref[RunSeries::Lon]) * 111000.0 *
                std::cos(ref[RunSeries::Lat] * DEG_TO_RAD);
     case RunSeries::Heading:
     {
         double dh = std::fmod(row.result[RunSeries::Heading] - ref[RunSeries::Heading] + 180.0,
                               360.0);
         if (dh < 0.0) dh += 360.0;
-        return std::abs(dh - 180.0);
+        return dh - 180.0;
     }
     default:
-        return std::abs(row.result[column] - ref[column]);
+        return row.result[column] - ref[column];
+    }
+}
+
+// Модуль отклонения одной величины от опоры в единицах таблицы: широта и
+// долгота переводятся в метры, курс берётся по кратчайшей дуге, остальные
+// величины — в своих единицах (метры, м/с).
+double deviationOf(const RunSeries::Row &row, const double *ref, int column)
+{
+    return std::abs(signedDeviationOf(row, ref, column));
+}
+
+// Единица ошибки величины — та же, что в таблице отклонений: координаты в
+// метрах, углы в градусах, скорости в м/с.
+const char *errorUnitName(int column)
+{
+    switch (column)
+    {
+    case RunSeries::Lat:
+    case RunSeries::Lon:
+    case RunSeries::Alt: return "м";
+    case RunSeries::Vn:
+    case RunSeries::Ve:
+    case RunSeries::Vh: return "м/с";
+    default: return "°";
+    }
+}
+
+// Пары «строка результата — опорная строка» для таблицы отклонений и графиков
+// ошибок: земная истина сопоставляется с ближайшей по времени строкой
+// результата (ряды отсортированы, окно двигается вперёд), без истины опорой
+// служит эталон СНС самой строки. align_time_s отбрасывает точки выставки —
+// её всплески искажают и таблицу, и статистику.
+void matchReferences(const RunSeries &series, const QVector<TruthSample> &truth,
+                     double align_time_s, QVector<int> &row_idx,
+                     QVector<const double *> &refs)
+{
+    row_idx.clear();
+    refs.clear();
+    if (series.rows.empty()) return;
+
+    if (!truth.isEmpty())
+    {
+        // Как в truthStats: каждому отсчёту истины — ближайшая по времени строка.
+        std::size_t j = 0;
+        for (const TruthSample &tr : truth)
+        {
+            const double t = tr.v[0];
+            // Окно анализа: точки до конца выставки в таблицу не берём.
+            if (t < align_time_s) continue;
+            while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
+            std::size_t best = j;
+            if (j + 1 < series.rows.size() &&
+                std::abs(series.rows[j + 1].time - t) < std::abs(series.rows[j].time - t))
+            {
+                best = j + 1;
+            }
+            row_idx.push_back(static_cast<int>(best));
+            refs.push_back(tr.v);
+        }
+    }
+    else
+    {
+        // Наборы без истины: опора — эталон СНС (кадры коррекции).
+        for (std::size_t i = 0; i < series.rows.size(); ++i)
+        {
+            if (!series.rows[i].has_reference) continue;
+            if (series.rows[i].time < align_time_s) continue;
+            row_idx.push_back(static_cast<int>(i));
+            refs.push_back(series.rows[i].reference);
+        }
     }
 }
 
@@ -470,38 +545,7 @@ QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series
     // result (time, lon, lat, alt, heading, pitch, roll, vn, vh, ve).
     QVector<int> row_idx;
     QVector<const double *> refs;
-
-    if (!truth.isEmpty())
-    {
-        // Как в truthStats: каждому отсчёту истины — ближайшая по времени строка.
-        std::size_t j = 0;
-        for (const TruthSample &tr : truth)
-        {
-            const double t = tr.v[0];
-            // Окно анализа: точки до конца выставки в таблицу не берём.
-            if (t < align_time_s) continue;
-            while (j + 1 < series.rows.size() && series.rows[j + 1].time <= t) ++j;
-            std::size_t best = j;
-            if (j + 1 < series.rows.size() &&
-                std::abs(series.rows[j + 1].time - t) < std::abs(series.rows[j].time - t))
-            {
-                best = j + 1;
-            }
-            row_idx.push_back(static_cast<int>(best));
-            refs.push_back(tr.v);
-        }
-    }
-    else
-    {
-        // Наборы без истины: опора — эталон СНС (кадры коррекции).
-        for (std::size_t i = 0; i < series.rows.size(); ++i)
-        {
-            if (!series.rows[i].has_reference) continue;
-            if (series.rows[i].time < align_time_s) continue;
-            row_idx.push_back(static_cast<int>(i));
-            refs.push_back(series.rows[i].reference);
-        }
-    }
+    matchReferences(series, truth, align_time_s, row_idx, refs);
     if (row_idx.isEmpty()) return groups;
 
     // Пороги по группам: координаты — метры, углы — градусы, скорости — м/с.
@@ -553,6 +597,41 @@ QVector<PdfReport::DeviationGroup> PdfReport::deviations(const RunSeries &series
         groups.push_back(group);
     }
     return groups;
+}
+
+QVector<PlotSeries> PdfReport::errorSeries(const RunSeries &series,
+                                           const QVector<TruthSample> &truth,
+                                           int column, double align_time_s)
+{
+    QVector<PlotSeries> out;
+    if (series.rows.empty()) return out;
+
+    // Те же пары «строка — опора», что в таблице отклонений: график ошибок и
+    // таблица считаются по одним и тем же точкам, поэтому пик на графике равен
+    // peak строки таблицы и их можно сверять глазами.
+    QVector<int> row_idx;
+    QVector<const double *> refs;
+    matchReferences(series, truth, align_time_s, row_idx, refs);
+    if (row_idx.isEmpty()) return out;
+
+    // Один ряд на величину: знаковое отклонение во времени. Прореживание не
+    // нужно — точек столько, сколько пар сравнения (не больше строк результата).
+    PlotSeries s;
+    s.name = QString::fromUtf8(quantityName(column));
+    s.color = kErrorColor;
+    s.points.reserve(row_idx.size());
+    for (int k = 0; k < row_idx.size(); ++k)
+    {
+        const RunSeries::Row &r = series.rows[row_idx[k]];
+        s.points.push_back(QPointF(r.time, signedDeviationOf(r, refs[k], column)));
+    }
+    out.push_back(s);
+    return out;
+}
+
+QString PdfReport::errorUnit(int column)
+{
+    return QString::fromUtf8(errorUnitName(column));
 }
 
 QString PdfReport::summarize(const RunSeries &series)

@@ -69,6 +69,9 @@ private slots:
     void summaryReportsDofAndErrors();
     void deviationsCountPeaksAndThresholds();
     void deviationsRespectAlignWindow();
+    void errorSeriesMatchesDeviations();
+    void errorSeriesRespectsAlignWindow();
+    void errorSeriesFallsBackToReference();
     void emptyRunIsRejected();
     void buildsPdfFile();
     void buildsPdfWithTruth();
@@ -214,6 +217,137 @@ void TestPdfReport::deviationsRespectAlignWindow()
     const QVector<PdfReport::DeviationGroup> windowed = PdfReport::deviations(run, truth, 0.5);
     QCOMPARE(windowed[0].samples, 5);
     QVERIFY2(std::abs(find_alt(windowed[0]).peak - 0.3) < 1e-12, "peak_windowed");
+}
+
+// График ошибок строится по тем же парам «строка — опора», что и таблица отклонений, и в тех же единицах: пик на графике равен peak строки таблицы, а знак показывает сторону ошибки (курс — по кратчайшей дуге).
+void TestPdfReport::errorSeriesMatchesDeviations()
+{
+    RunSeries run;
+    for (int i = 0; i < 10; i++)
+    {
+        RunSeries::Row r{};
+        r.time = 0.1 * i;
+        r.result[RunSeries::Lat] = 47.0;
+        r.result[RunSeries::Alt] = 100.0;
+        r.result[RunSeries::Heading] = 10.0;
+        run.rows.push_back(r);
+    }
+
+    // Пять отсчётов истины (каждой второй строке): широта на 1e-5° меньше (ошибка на север +1.11 м), высота — на 0..8 м ниже, курс на 359° меньше (по кратчайшей дуге это −1°, а не −359°).
+    QVector<TruthSample> truth;
+    for (int k = 0; k < 5; k++)
+    {
+        TruthSample tr;
+        tr.v[0] = run.rows[2 * k].time;
+        tr.v[2] = 47.0 - 1e-5;
+        tr.v[3] = 100.0 - 2.0 * k;
+        tr.v[4] = 10.0 - 359.0;
+        truth.push_back(tr);
+    }
+
+    const QVector<PdfReport::DeviationGroup> groups = PdfReport::deviations(run, truth);
+    const auto rowNamed = [](const PdfReport::DeviationGroup &g, const QString &name) {
+        for (const PdfReport::DeviationRow &r : g.rows)
+            if (r.name == name) return r;
+        return PdfReport::DeviationRow();
+    };
+    const PdfReport::DeviationRow alt_table = rowNamed(groups[0], QString::fromUtf8("Высота"));
+    const PdfReport::DeviationRow lat_table = rowNamed(groups[0], QString::fromUtf8("Широта"));
+    const PdfReport::DeviationRow hdg_table = rowNamed(groups[1], QString::fromUtf8("Курс"));
+
+    // Ошибка высоты растёт линейно 0, 2, 4, 6, 8 м: оценка выше истины, знак положительный.
+    const QVector<PlotSeries> alt = PdfReport::errorSeries(run, truth, RunSeries::Alt);
+    QCOMPARE(int(alt.size()), 1);
+    QCOMPARE(alt.first().name, QString::fromUtf8("Высота"));
+    QCOMPARE(int(alt.first().points.size()), 5);
+    for (int k = 0; k < 5; k++)
+        QVERIFY2(std::abs(alt.first().points[k].y() - 2.0 * k) < 1e-9, "alt error");
+    QVERIFY2(std::abs(std::abs(alt.first().points.last().y()) - alt_table.peak) < 1e-9,
+             "пик графика ошибок равен peak таблицы");
+
+    // Широта: оценка севернее истины — ошибка +1.11 м.
+    const QVector<PlotSeries> lat = PdfReport::errorSeries(run, truth, RunSeries::Lat);
+    QCOMPARE(int(lat.first().points.size()), 5);
+    QVERIFY2(std::abs(lat.first().points.first().y() - 1.11) < 0.01, "lat error");
+    QVERIFY2(std::abs(std::abs(lat.first().points.first().y()) - lat_table.peak) < 0.01,
+             "|ошибку широты| = пике таблицы");
+
+    // Курс: 359° по кругу дают −1°, а не −359°, и знак отрицательный.
+    const QVector<PlotSeries> hdg = PdfReport::errorSeries(run, truth, RunSeries::Heading);
+    QCOMPARE(int(hdg.first().points.size()), 5);
+    QVERIFY2(std::abs(hdg.first().points.first().y() - (-1.0)) < 1e-9, "hdg signed");
+    QVERIFY2(std::abs(std::abs(hdg.first().points.first().y()) - hdg_table.peak) < 1e-9,
+             "|ошибку курса| = пике таблицы");
+
+    // Единицы графика ошибок — единицы таблицы.
+    QCOMPARE(PdfReport::errorUnit(RunSeries::Lat), QString::fromUtf8("м"));
+    QCOMPARE(PdfReport::errorUnit(RunSeries::Alt), QString::fromUtf8("м"));
+    QCOMPARE(PdfReport::errorUnit(RunSeries::Heading), QString::fromUtf8("°"));
+    QCOMPARE(PdfReport::errorUnit(RunSeries::Vn), QString::fromUtf8("м/с"));
+}
+
+// Окно анализа: с align_time_s точки до выставки отбрасываются — как в таблице отклонений, чтобы предвыставочные всплески не искажали график.
+void TestPdfReport::errorSeriesRespectsAlignWindow()
+{
+    RunSeries run;
+    for (int i = 0; i < 10; i++)
+    {
+        RunSeries::Row r{};
+        r.time = 0.1 * i;
+        r.result[RunSeries::Alt] = 100.0;
+        run.rows.push_back(r);
+    }
+
+    // Истина: до t = 0.5 с ошибка высоты 10 м, после — 0.3 м.
+    QVector<TruthSample> truth;
+    for (int i = 0; i < 10; i++)
+    {
+        TruthSample tr;
+        tr.v[0] = 0.1 * i;
+        tr.v[3] = 100.0 - (i < 5 ? 10.0 : 0.3);
+        truth.push_back(tr);
+    }
+
+    // Без окна — 10 точек и пик 10 м.
+    const QVector<PlotSeries> all = PdfReport::errorSeries(run, truth, RunSeries::Alt);
+    QCOMPARE(int(all.size()), 1);
+    QCOMPARE(int(all.first().points.size()), 10);
+    QVERIFY2(std::abs(all.first().points.first().y() - 10.0) < 1e-12, "peak_all");
+
+    // С окном t >= 0.5 с — только 5 точек после выставки, пик 0.3 м.
+    const QVector<PlotSeries> win = PdfReport::errorSeries(run, truth, RunSeries::Alt, 0.5);
+    QCOMPARE(int(win.first().points.size()), 5);
+    QVERIFY2(std::abs(win.first().points.first().y() - 0.3) < 1e-12, "peak_windowed");
+}
+
+// Без истины опора — эталон СНС строки результата; строки без эталона в график не попадают.
+void TestPdfReport::errorSeriesFallsBackToReference()
+{
+    RunSeries run;
+    for (int i = 0; i < 6; i++)
+    {
+        RunSeries::Row r{};
+        r.time = 0.1 * i;
+        r.result[RunSeries::Alt] = 100.0;
+        // У трёх строк из шести нет эталона — они пропускаются.
+        r.has_reference = (i % 2 == 0);
+        r.reference[RunSeries::Alt] = 100.0 - 2.0;
+        run.rows.push_back(r);
+    }
+
+    const QVector<PlotSeries> err =
+        PdfReport::errorSeries(run, QVector<TruthSample>(), RunSeries::Alt);
+    QCOMPARE(int(err.size()), 1);
+    QCOMPARE(int(err.first().points.size()), 3);
+    for (const QPointF &p : err.first().points)
+        QVERIFY2(std::abs(p.y() - 2.0) < 1e-9, "ошибка от эталона СНС");
+
+    // Ни истины, ни эталона — графика ошибок нет.
+    RunSeries bare;
+    RunSeries::Row r{};
+    r.time = 0.0;
+    bare.rows.push_back(r);
+    QVERIFY(PdfReport::errorSeries(bare, QVector<TruthSample>(), RunSeries::Alt).isEmpty());
 }
 
 void TestPdfReport::emptyRunIsRejected()

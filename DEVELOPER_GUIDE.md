@@ -140,7 +140,7 @@ ctest --test-dir build --output-on-failure
 Ключ кэша — версия, размер, диапазоны X/Y. API: `setCacheEnabled`/`isCacheEnabled`/`cacheHits`/`cacheMisses`/`invalidateCache`/`isCacheValid`/`rebuildCache`. При disabled — прямая отрисовка, счётчики не растут. Курсор поверх кэша. Инвалидация обязательна при изменении отрисовки.
 
 ## 11. PDF-отчёт
-`QPdfWriter`, A4, dof=9. Сохранение/восстановление series и sync_markers, графики через `renderTo()`.
+`QPdfWriter`, A4, dof=9. Сохранение/восстановление series и sync_markers, графики через `renderTo()`. Блоки собирает `MainWindow::buildReportBlocks()`: траектория, по каждой величине — сам график и график её ошибки (`PdfReport::errorSeries` — знаковое отклонение от истины или эталона СНС, единицы таблицы отклонений), согласованность NIS/NEES. Таблица отклонений и графики ошибок считаются по одним парам «строка — опора» (`matchReferences` в `pdf_report.cpp`), поэтому максимум на графике совпадает с `peak` таблицы.
 
 ## 12. История/фильтр
 `HistoryModel` + `QSortFilterProxyModel` (ParamsPanel), фильтр по имени/дате/каталогу, сортировка по дате по умолчанию, `mapToSource()` корректен.
