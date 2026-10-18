@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QFileInfo>
 #include <QLocale>
 #include <QTextStream>
@@ -18,6 +19,8 @@
 
 #include "MainWindow.h"
 #include "core/data_io/dataset_generator.h"
+#include "core/navigation/bias_report.h"
+#include "core/navigation/simulation.h"
 #include "export/tuning_report.h"
 #include "settings/app_settings.h"
 
@@ -43,6 +46,10 @@ int main(int argc, char *argv[])
             qputenv("QT_QPA_PLATFORM", "offscreen");
         }
         else if (qstrncmp(argv[i], "--tuning-report", 15) == 0)
+        {
+            qputenv("QT_QPA_PLATFORM", "offscreen");
+        }
+        else if (qstrncmp(argv[i], "--bias-report", 13) == 0)
         {
             qputenv("QT_QPA_PLATFORM", "offscreen");
         }
@@ -129,6 +136,11 @@ int main(int argc, char *argv[])
                                                  "Куда сохранить отчёт о подборе "
                                                  "(по умолчанию — reports/<набор>/tuning_<набор>.pdf)."),
                                              QCoreApplication::translate("main", "file.pdf"));
+    QCommandLineOption bias_report_opt("bias-report",
+                                       QCoreApplication::translate("main",
+                                           "Без окна: прогнать набор и вывести сводную таблицу по смещениям ИМУ "
+                                           "(истина из params.json / оценка / σ(P) / нормированная ошибка) — "
+                                           "этап 0 docs/bias_estimation_plan.md. Каталог набора берётся из --data."));
 
     parser.addOption(data_opt);
     parser.addOption(out_opt);
@@ -142,6 +154,7 @@ int main(int argc, char *argv[])
     parser.addOption(export_matrices_opt);
     parser.addOption(tuning_report_opt);
     parser.addOption(tuning_report_out_opt);
+    parser.addOption(bias_report_opt);
     parser.process(app);
 
     QString report_file;
@@ -262,6 +275,72 @@ int main(int argc, char *argv[])
             out << QStringLiteral("tuning-report: ok -> %1\n").arg(out_path);
         else
             out << QStringLiteral("tuning-report: ошибка: %1\n").arg(error);
+        out.flush();
+        return ok ? 0 : 1;
+    }
+
+    // Режим --bias-report (этап 0 плана оценивания смещений): без окна
+    // прогоняем набор с журналом смещений и печатаем сводную таблицу
+    // «истина / оценка / σ(P) / нормированная ошибка» на окнах 1…300 с.
+    // Математика целиком в esfcore (nav::runBiasReport), поэтому результат
+    // совпадает с консольным imitator --bias-report.
+    //
+    // imitator_gui — приложение WIN32-подсистемы, его stdout на Windows не
+    // виден в консоли (это проверено: существующие --self-test-* режимы тоже
+    // не выводят текст), поэтому таблица пишется в файл, а в stdout идёт путь —
+    // тот же приём, что у --tuning-report (он пишет PDF и печатает «ok ->»).
+    if (parser.isSet(bias_report_opt))
+    {
+        nav::RunOptions options;
+        options.data_dir = settings.data_dir.toStdString();
+        options.output_dir = settings.output_dir.toStdString();
+        options.settings_file = settings.settings_file.toStdString();
+        options.write_files = true;      // result/reference/errors пишутся как обычно
+        options.write_bias_log = true;   // + bias.txt (принудительно ради отчёта)
+
+        nav::RunSummary summary;
+        std::string report, error;
+        bool ok = nav::runBiasReport(options, summary, report, error);
+
+        QTextStream out(stdout);
+        if (ok)
+        {
+            // Отчёт рядом с журналом смещений (bias.txt) — в каталоге вывода.
+            const QString report_path =
+                QDir(QString::fromStdString(options.output_dir))
+                    .filePath(QStringLiteral("bias_report.txt"));
+
+            // UTF-8 с BOM: в отчёте есть кириллица, а без BOM PowerShell 5.1
+            // читает файл как ANSI (см. reports/*.txt — те тоже с BOM).
+            static const char kUtf8Bom[] = {'\xEF', '\xBB', '\xBF'};
+            const std::string payload =
+                std::string(kUtf8Bom, sizeof(kUtf8Bom)) + report;
+
+            QFile f(report_path);
+            // WriteOnly у QFile обрезает существующий файл (эквивалент Trunc).
+            const bool written =
+                f.open(QIODevice::WriteOnly | QIODevice::Text) &&
+                f.write(payload.data(), static_cast<qint64>(payload.size())) ==
+                    static_cast<qint64>(payload.size());
+            f.close();
+
+            if (written)
+            {
+                out << QStringLiteral("bias-report: ok -> %1\n").arg(report_path);
+            }
+            else
+            {
+                // Отчёт не записан — режим не выполнил свою задачу, код 1.
+                out << QStringLiteral("bias-report: не удалось записать %1\n")
+                           .arg(report_path);
+                ok = false;
+            }
+        }
+        else
+        {
+            out << QStringLiteral("bias-report: ошибка: %1\n")
+                       .arg(QString::fromStdString(error));
+        }
         out.flush();
         return ok ? 0 : 1;
     }

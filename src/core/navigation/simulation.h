@@ -36,6 +36,10 @@ struct RunOptions
     std::string output_dir;     // каталог для result.txt / reference.txt / errors.txt
     std::string settings_file;  // settings.ini (пусто — значения по умолчанию)
     bool write_files = true;    // писать ли файлы результатов
+    // Писать ли bias.txt — журнал оценок смещений ДУС/акселя (Этап 0 плана
+    // docs/bias_estimation_plan.md). Диагностика: на result.txt/reference.txt/
+    // errors.txt не влияет, поэтому test_parity сохраняется.
+    bool write_bias_log = false;
     bool capture_telemetry = false;  // считать ли диагонали P и инновацию z
     // Источник входных данных. nullptr — файловый источник по data_dir.
     // Заданный источник (например, MockDataSource) позволяет прогонять ту же
@@ -63,6 +67,9 @@ struct RunSummary
     double ba[3] = {0, 0, 0};  // смещение акселерометра из выставки, м/с²
     std::size_t steps = 0;         // число выполненных тактов
     std::size_t corrections = 0;   // число коррекций по СНС
+    // Пропущено битых строк imu.dat (неполный формат, NaN). Диагностика
+    // качества датасета: раньше такие строки молча отбрасывались внутри цикла.
+    std::size_t invalid_imu_rows = 0;
     double time_first = 0;
     double time_last = 0;
     double wall_seconds = 0;       // длительность расчёта, с

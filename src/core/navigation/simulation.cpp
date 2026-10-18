@@ -13,6 +13,7 @@
 
 #include "../utils/constants.h"
 #include "aligner.h"
+#include "bias_log.h"
 #include "filter_settings.h"
 #include "gps_processor.h"
 
@@ -319,9 +320,30 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     ForwardingSink sink(file_sink, observer);
     sink.writeHeader();
 
+    // Журнал смещений (Этап 0 плана по смещениям): пишется только по флагу,
+    // поэтому result/reference/errors и test_parity не затрагиваются.
+    BiasLogWriter bias_log;
+    if (options.write_bias_log)
+    {
+        const std::string bias_file = (tools_dir / "bias.txt").string();
+        if (!bias_log.open(bias_file))
+        {
+            summary.error = "cannot open " + bias_file;
+            src->close();
+            sink.close();
+            return false;
+        }
+        if (log) *log << "bias log: " << bias_file << std::endl;
+    }
+
     const bool want_telemetry = observer != nullptr && options.capture_telemetry;
     RunPacer *pacer = options.pacer;
     StepTelemetry tel;
+
+    // Время последней записи журнала — для декадирования и для дедупликации
+    // финального кадра (ровная сетка окон 1/10/30/… с в отчёте).
+    double bias_last_written = -1.0;
+    std::size_t bias_rows = 0;
 
     std::vector<double> row;
     SnsSample ref;
@@ -341,6 +363,10 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
 
         if (!ins::isValidRow(row))
         {
+            // Битые строки imu.dat: раньше отбрасывались молча. Считаем и
+            // логируем, чтобы предполётная проверка набора (Этап 0) показывала,
+            // что сравнения с истиной могут быть неполными.
+            summary.invalid_imu_rows++;
             continue;
         }
 
@@ -404,6 +430,30 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         if (summary.steps == 1) summary.time_first = imu_time;
         summary.time_last = imu_time;
 
+        // Журнал смещений (Этап 0). Оценки ba/bg и трим меняются на каждом
+        // такте (tilt-апдейт 200 Гц), поэтому «записать при изменении» дал бы
+        // ~26 МБ на прогон. Отчёту нужны окна 1/10/30/… с, а динамика смещений
+        // на порядки медленнее такта: декадируем до 5 Гц. Финальный кадр
+        // дописывается после цикла, чтобы отчёт всегда видел конечное состояние.
+        if (bias_log.isOpen() &&
+            (summary.steps == 1 || (imu_time - bias_last_written) >= 0.2))
+        {
+            BiasSample sample;
+            sample.time = imu_time;
+            for (int k = 0; k < 3; k++)
+            {
+                sample.ba[k] = state.ba[k];
+                sample.bg[k] = state.bg[k];
+                sample.sig_ba[k] = sqrt(fmax(0.0, at(state.P, 9 + k, 9 + k, ins::KF_STATE)));
+                sample.sig_bg[k] = sqrt(fmax(0.0, at(state.P, 12 + k, 12 + k, ins::KF_STATE)));
+            }
+            sample.trim_bias_pitch = state.tilt_trim.bias_pitch;
+            sample.trim_bias_roll = state.tilt_trim.bias_roll;
+            bias_log.write(sample);
+            bias_last_written = imu_time;
+            bias_rows++;
+        }
+
         if (want_telemetry)
         {
             observer->onState(state, *tp);
@@ -425,8 +475,42 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         }
     }
 
+    // Финальный кадр журнала: декадирование могло пропустить последнее
+    // состояние, а отчёт всегда должен видеть конечные оценки и сигмы.
+    if (bias_log.isOpen() && summary.steps > 0)
+    {
+        BiasSample sample;
+        sample.time = summary.time_last;
+        for (int k = 0; k < 3; k++)
+        {
+            sample.ba[k] = state.ba[k];
+            sample.bg[k] = state.bg[k];
+            sample.sig_ba[k] = sqrt(fmax(0.0, at(state.P, 9 + k, 9 + k, ins::KF_STATE)));
+            sample.sig_bg[k] = sqrt(fmax(0.0, at(state.P, 12 + k, 12 + k, ins::KF_STATE)));
+        }
+        sample.trim_bias_pitch = state.tilt_trim.bias_pitch;
+        sample.trim_bias_roll = state.tilt_trim.bias_roll;
+        // Дедупликация: если последний такт попал в декадирование, кадр уже есть.
+        if (sample.time != bias_last_written)
+        {
+            bias_log.write(sample);
+            bias_rows++;
+        }
+    }
+
     src->close();
     sink.close();
+    bias_log.close();
+
+    if (log && bias_rows > 0)
+    {
+        *log << "bias log: " << bias_rows << " rows" << std::endl;
+    }
+    if (summary.invalid_imu_rows > 0 && log)
+    {
+        *log << "WARNING: skipped " << summary.invalid_imu_rows
+             << " malformed imu.dat rows" << std::endl;
+    }
 
     if (observer != nullptr) observer->onProgress(summary.time_last, done_rows, total_rows);
 

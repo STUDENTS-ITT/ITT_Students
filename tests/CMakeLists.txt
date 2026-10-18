@@ -20,6 +20,7 @@ set(ITT_TESTS
     test_simulation
     test_dataset_generator
     test_gnss_guard
+    test_bias_estimate
 )
 
 foreach(test_name IN LISTS ITT_TESTS)
@@ -32,6 +33,11 @@ foreach(test_name IN LISTS ITT_TESTS)
     add_test(NAME ${test_name} COMMAND ${test_name})
     set_tests_properties(${test_name} PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1")
+    # test_bias_estimate генерирует набор данных и прогоняет полную симуляцию
+    # (Этап 0), поэтому требует больше времени, чем остальные юнит-тесты.
+    if(${test_name} STREQUAL "test_bias_estimate")
+        set_tests_properties(${test_name} PROPERTIES TIMEOUT 300)
+    endif()
     # Qt и рантайм MinGW лежат вне каталога сборки — добавляем их в PATH теста.
     # Две отдельные операции, чтобы не вставлять ';' внутрь значения.
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)

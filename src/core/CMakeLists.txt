@@ -11,6 +11,8 @@ add_library(esfcore STATIC
     data_io/data_writer.cpp
     data_io/dataset_generator.cpp
     navigation/Aligner.cpp
+    navigation/bias_log.cpp
+    navigation/bias_report.cpp
     navigation/filter_settings.cpp
     navigation/simulation.cpp
     utils/ini_parser.cpp
