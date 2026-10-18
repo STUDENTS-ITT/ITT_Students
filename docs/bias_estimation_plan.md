@@ -115,6 +115,10 @@
   гейтинг (`gyro_off_rad_s`, `settle_s`, `brake_body_accel`, `tau_fast_s`,
   `tau_slow_s`, `fast_err_rad`, `level_acc_rad`, `divergence_deadband_rad`):
   подбор этих ключей означал бы, что оптимизатор подбирает R1.
+  *Фактический итог Этапа 1 (см. `bias_estimation_stages.md`, раздел 4):
+  ключей стало **5** — вместе с тримом удалены `tau_fast_s`, `tau_slow_s`,
+  `fast_err_rad`, `bias_gain`, `bias_max_rad_s`; сохранены `gyro_off_rad_s`,
+  `settle_s`, `brake_body_accel`, `level_acc_rad`, `divergence_deadband_rad`.*
 
 Прямая связь с R3: `sigma_ba`/`sigma_bg` подбираются для Q, но нужная стартовая
 неопределённость смещений (P0) зашита и мала, а диагональная P0 не кодирует
