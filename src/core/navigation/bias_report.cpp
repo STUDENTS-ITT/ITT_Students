@@ -336,7 +336,13 @@ std::string formatBiasReport(const std::vector<BiasReportRow> &rows,
     }
     out << "observability: "
         << (truth.valid ? truth.observability_note : std::string("unknown"))
-        << "\n\n";
+        << "\n";
+    // Этап 4 плана (п.4): структурная неразличимость — свойство модели, а не
+    // дефект оценивателя; фиксируется в каждом отчёте, чтобы нормы ошибок
+    // читались вместе с ограничением.
+    out << "structure: ba и (тангаж, крен) определены только в сумме; "
+           "bg и курс — только в сумме\n";
+    out << "\n";
 
     out << std::left << std::setw(8) << "comp"
         << std::right << std::setw(10) << "window_s"

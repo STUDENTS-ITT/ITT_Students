@@ -237,6 +237,41 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         if (log) *log << summary.error << std::endl;
         return false;
     }
+
+    // Этап 4 плана (R5): эталон курса и оценка его шума по потоку СНС за окно
+    // выставки. Нужны только при наличии angle.dat: поток СНС независим от
+    // потока ИМУ, а перед основным циклом источник перематывается ещё раз,
+    // поэтому чтение здесь ничего не ломает.
+    //
+    // σ̂ считается по отклонениям от первого отсчёта (нормировка в (−π, π]):
+    // покой на окне выставки гарантирует, что в разброс попадает только шум
+    // эталона, а не повороты. Он и есть честный P0(курса) R5.
+    double sns_heading0 = 0.0;      // курс первого отсчёта СНС, рад
+    double sns_heading_sigma = 0.0; // σ̂ шума эталона курса по окну, рад
+    int sns_heading_count = 0;
+    if (has_angle)
+    {
+        SnsSample sample;
+        double dev_sum = 0.0, dev_sum2 = 0.0;
+        while (src->nextSns(sample) && sample.time <= align_time)
+        {
+            if (sns_heading_count == 0)
+            {
+                sns_heading0 = sample.heading;
+            }
+            const double dev = normalize_angle(sample.heading - sns_heading0);
+            dev_sum += dev;
+            dev_sum2 += dev * dev;
+            sns_heading_count++;
+        }
+        if (sns_heading_count > 1)
+        {
+            const double n = static_cast<double>(sns_heading_count);
+            const double var = fmax((dev_sum2 - dev_sum * dev_sum / n) / (n - 1.0), 0.0);
+            sns_heading_sigma = sqrt(var);
+        }
+    }
+
     AlignImuProvider align_provider =
         [src](double &Time, double &Wx, double &Wy, double &Wz,
               double &Ax, double &Ay, double &Az) -> bool
@@ -259,9 +294,10 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         }
         return false;
     };
+    double omega_h_meas = -1.0;  // измеренный |ω_h| за окно выставки, рад/с
     alignFromImuProvider(align_provider, &Yaw_0, &Pitch_0, &Roll_0,
                          &ba_x, &ba_y, &ba_z, start_lat, start_alt, align_time,
-                         source_is_file);
+                         source_is_file, &omega_h_meas);
 
     if (log)
     {
@@ -271,10 +307,38 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
         *log << "ba: " << ba_x << ", " << ba_y << ", " << ba_z << std::endl;
     }
 
+    // Этап 4 плана (R4): годность курсовой выставки. Ω_h — ожидаемая
+    // проекция вращения Земли на горизонт; обратное неравенство треугольника
+    // даёт ||ω_h| − Ω_h| ≤ |bg_гор|, поэтому отношение
+    // ||ω_h| − Ω_h|/Ω_h ≤ |bg_гор|/Ω_h и превышение порога — достаточное
+    // основание признать курс по вращению Земли недостоверным. Само
+    // отношение занижено: перпендикулярная Земле составляющая смещения в
+    // модуль |ω_h| не входит, а она и даёт основную ошибку курса.
+    constexpr double GYRO_COMPASS_LIMIT = 0.3;
+    const double omega_h_expected = fabs(cos(start_lat * DEG_TO_RAD)) * U_EARTH;
+    const double gc_ratio = (omega_h_meas >= 0.0 && omega_h_expected > 0.0)
+                                ? fabs(omega_h_meas - omega_h_expected) / omega_h_expected
+                                : -1.0;
+    const bool gyro_compass_ok = gc_ratio >= 0.0 && gc_ratio <= GYRO_COMPASS_LIMIT;
+
+    // Этап 4 плана (R5): при наличии angle.dat начальный курс берём из первого
+    // отсчёта СНС (эталон), а не из gyro-compassing, и P0(курс) = σ_hdg².
+    // σ_hdg — шум эталона курса: берём максимум конфигурации и оценки по
+    // данным, потому что на наборах шум angle.dat (0.05…1.0°) больше
+    // настроенного значения, и P0 пришлось бы занижать.
+    const bool heading_from_sns = has_angle && sns_heading_count > 0;
+    double sig_heading0 = -1.0;  // <= 0 — формула выставки σ_bg/Ω_h
+    if (heading_from_sns)
+    {
+        Yaw_0 = sns_heading0;
+        sig_heading0 = fmax(ins::kalman_cfg.sig_hdg, sns_heading_sigma);
+    }
+
     const Vector ba0 = {ba_x, ba_y, ba_z};
 
     NavState state = initialAlignment(start_lat * DEG_TO_RAD, start_lon * DEG_TO_RAD,
-                                      start_alt, Yaw_0, Pitch_0, Roll_0, ba0);
+                                      start_alt, Yaw_0, Pitch_0, Roll_0, ba0,
+                                      sig_heading0);
 
     summary.yaw0_deg = Yaw_0 * 180.0 / PI;
     summary.pitch0_deg = Pitch_0 * 180.0 / PI;
@@ -282,11 +346,44 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
     summary.ba[0] = ba_x;
     summary.ba[1] = ba_y;
     summary.ba[2] = ba_z;
+    summary.heading_from_sns = heading_from_sns;
+    summary.gyro_compass_ratio = gc_ratio;
+    summary.sig_heading0 = (sig_heading0 > 0.0)
+                               ? sig_heading0
+                               : sqrt(fmax(at(state.P, 6, 6, ins::KF_STATE), 0.0));
+    // Достоверность взятого курса: из эталона СНС — всегда; из
+    // gyro-compassing — только если проверка по вращению Земли пройдена
+    // (без данных о ней считаем курс недостоверным, а не наоборот).
+    summary.heading_reliable = heading_from_sns ? true : gyro_compass_ok;
 
     if (log)
     {
         *log << "[Rad] Yaw: " << state.att.heading << ", Pitch: " << state.att.pitch
              << ", Roll: " << state.att.roll << std::endl;
+
+        // Этап 4 (R4, R5): источник начального курса и его достоверность.
+        *log << "heading source: "
+             << (heading_from_sns ? "angle.dat (first SNS sample)" : "gyro-compassing")
+             << std::endl;
+        *log << "sigma(heading0) = " << summary.sig_heading0 << " rad" << std::endl;
+        if (gc_ratio >= 0.0)
+        {
+            *log << "gyro-compassing check: ||w_h|-Omega_h|/Omega_h = " << gc_ratio
+                 << " (lower bound of |bg_hor|/Omega_h, limit " << GYRO_COMPASS_LIMIT
+                 << ")" << std::endl;
+        }
+        if (heading_from_sns && !gyro_compass_ok)
+        {
+            *log << "note: gyro-compassing would be unreliable, heading taken from angle.dat"
+                 << std::endl;
+        }
+        if (!has_angle)
+        {
+            *log << "WARNING: angle.dat not found: initial heading from gyro-compassing"
+                 << (gyro_compass_ok ? ", earth-rate check passed but heading is unverified"
+                                     : ", earth-rate check failed: heading is unreliable")
+                 << std::endl;
+        }
         *log << "Output: " << tools_dir.string() << std::endl;
     }
 

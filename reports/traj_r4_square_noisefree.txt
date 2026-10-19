@@ -1,0 +1,25 @@
+﻿traj r4 - square_noisefree
+rows: 6598
+
+pos    4.2647e-006   0.0000e+000
+vel    1.9223e-003   0.0000e+000
+att    0.0000e+000   0.0000e+000
+ba     0.0000e+000   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=7.3866e-006  final=0.0000e+000
+  x3   rms=3.3095e-003  final=0.0000e+000
+  x4   rms=4.9121e-005  final=0.0000e+000
+  x5   rms=3.6187e-004  final=0.0000e+000
+  x6   rms=0.0000e+000  final=0.0000e+000
+  x7   rms=0.0000e+000  final=0.0000e+000
+  x8   rms=0.0000e+000  final=0.0000e+000
+  x9   rms=0.0000e+000  final=0.0000e+000
+  x10  rms=0.0000e+000  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

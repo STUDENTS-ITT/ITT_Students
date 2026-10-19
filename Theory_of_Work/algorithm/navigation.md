@@ -222,8 +222,12 @@ H: столбцы x[6..8] (углы) и x[9..11] (смещения акселя)
     - `sns = {ref.lat, ref.lon, ref.alt, ref.vn, ref.vh, ref.ve,`
       `has_heading_ref ? ref.heading : att.heading, att.pitch, att.roll}`
       (без `angle.dat` инновация курса нулевая — фильтр не тянет курс к нулю);
-    - `ins::correct(bins, sns, x, P, sig_hdg, 1e6·DEG_TO_RAD, 1e6·DEG_TO_RAD,`
-      `telemetry ? &stats : nullptr)`;
+    - `ins::correct(bins, sns, x, P, has_heading_ref ? sig_hdg : 1e6·DEG_TO_RAD,`
+      `1e6·DEG_TO_RAD, 1e6·DEG_TO_RAD, telemetry ? &stats : nullptr)`
+      *(Этап 4: без эталона курса строка курса обезвешена тем же `R`, что и
+      тангаж/крен, — иначе фиктивное наблюдение за один кадр сжимало
+      `P[6][6]` до `sig_hdg` и «доказывало» бы достоверность курса, которой
+      нет);*
     - заполнение телеметрии (инновация, статистика);
     - `sink.writeErrors(time_s, st.x)`; `applyKalmanCorrections(st)`;
       `sink.writeReference(makeReference(time_s, ref))`.
@@ -259,6 +263,12 @@ H: столбцы x[6..8] (углы) и x[9..11] (смещения акселя)
 `align_time_s`, `yaw0_deg`, `pitch0_deg`, `roll0_deg`, `ba[3]`, `steps`
 (число тактов), `corrections` (число коррекций), `time_first`, `time_last`,
 `wall_seconds`.
+
+Этап 4 (R4, R5) добавил диагностику начального курса:
+`heading_from_sns` (курс взят из первого отсчёта СНС), `heading_reliable`
+(`false` — `gyro-compassing` недостоверен или эталона курса нет),
+`gyro_compass_ratio` (`||ω_h| − Ω_h|/Ω_h` по окну выставки, `< 0` —
+диагностика недоступна), `sig_heading0` (σ начального курса, рад).
 
 ### Интерфейсы обратной связи
 

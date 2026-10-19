@@ -61,11 +61,14 @@ static bool parseAlignImuRow(const string &line, double &Time, double &Wx, doubl
  * @param h Высота над уровнем моря в метрах.
  * @param iter Время окончания выставки в секундах.
  * @param write_dump Писать ли отладочный дамп ../data/processed/Aligner.dat.
+ * @param omega_h_horiz (можно nullptr) средний модуль горизонтальной
+ *        составляющей угловой скорости за окно выставки, рад/с (R4).
  */
 void alignFromImuProvider(const AlignImuProvider &next,
                           double *Yaw, double *Pitch, double *Roll,
                           double *ba_x, double *ba_y, double *ba_z,
-                          double lat_deg, double h, double iter, bool write_dump)
+                          double lat_deg, double h, double iter, bool write_dump,
+                          double *omega_h_horiz)
 {
 		// Формула Клеро для расчёта g
 		double g = calculate_g(lat_deg * DEG_TO_RAD, h);
@@ -142,6 +145,10 @@ void alignFromImuProvider(const AlignImuProvider &next,
 		double final_roll_mean = 0.0;
 		long final_angles_count = 0;
 
+		// Средний модуль горизонтальной составляющей угловой скорости (R4):
+		// диагностика годности gyro-compassing, см. aligner.hpp.
+		double final_wh_mean = 0.0;
+
 		double Time, Ax, Ay, Az, Wx, Wy, Wz;
 
 		// Считывание данных из потока
@@ -210,6 +217,7 @@ void alignFromImuProvider(const AlignImuProvider &next,
 										update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
 										update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
 										update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
+										update_recursive_mean(final_wh_mean, sqrt(Wn_sm * Wn_sm + We_sm * We_sm), final_angles_count);
 
 										char line_buf[512];
 										snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
@@ -310,6 +318,7 @@ void alignFromImuProvider(const AlignImuProvider &next,
 								update_recursive_mean(final_yaw_mean, yaw_smooth, final_angles_count);
 								update_recursive_mean(final_pitch_mean, pitch_smooth, final_angles_count);
 								update_recursive_mean(final_roll_mean, roll_smooth, final_angles_count);
+								update_recursive_mean(final_wh_mean, sqrt(Wn_sm * Wn_sm + We_sm * We_sm), final_angles_count);
 
 								char line_buf[512];
 								snprintf(line_buf, sizeof(line_buf), "%-10.4f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f %-12.6f\n", time_arr[global_index], Ax_arr[global_index], Ay_arr[global_index], Az_arr[global_index], Wx_arr[global_index], Wy_arr[global_index], Wz_arr[global_index], yaw_smooth, roll_smooth, pitch_smooth, Ax_aver_arr[i], Ay_aver_arr[i], Az_aver_arr[i], Wx_aver_arr[i], Wy_aver_arr[i], Wz_aver_arr[i], raw_yaw, raw_roll, raw_pitch);
@@ -325,6 +334,12 @@ void alignFromImuProvider(const AlignImuProvider &next,
 		*Yaw = final_yaw_mean;
 		*Pitch = final_pitch_mean;
 		*Roll = final_roll_mean;
+
+		// Диагностика gyro-compassing (R4): -1 — кадров выставки не было.
+		if (omega_h_horiz != nullptr)
+		{
+				*omega_h_horiz = (final_angles_count > 0) ? final_wh_mean : -1.0;
+		}
 
 		// Смещение акселерометра: f_mean − C^T·[0, g, 0] при покое.
 		if (ba_x != nullptr && ba_y != nullptr && ba_z != nullptr && total_samples > 0)

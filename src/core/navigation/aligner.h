@@ -40,16 +40,30 @@ namespace nav
 // из угла в смещение.
 //
 // Явная конфигурация передаётся аргументом (для экспорта/документации).
-inline Matrix initialCovariance(const ins::KalmanConfig &cfg, double lat_rad)
+//
+// sig_heading — σ начального курса, рад. План (Этап 4, R5): при курсе из
+// эталона СНС (angle.dat) это шум эталона σ_hdg, а не неопределённость
+// вращения Земли; значение <= 0 означает «курс из gyro-compassing» и
+// оставляет прежнюю формулу σ_bg/Ω_h (честный приор для выставки, см.
+// комментарий выше). Фактический шум эталона оценивается по данным в
+// simulation.cpp и передаётся как max(σ_hdg, σ̂_шума).
+inline Matrix initialCovariance(const ins::KalmanConfig &cfg, double lat_rad,
+                                double sig_heading = -1.0)
 {
     // Паспортные неопределённости смещений на момент выставки.
     const double sig_ba = 5.0e-2;  // σ(ba) = 5 мг (наборы 2…8 мг)
     const double sig_bg = 5.0e-4;  // σ(bg) = 103 °/ч (наборы 20…150 °/ч)
 
+    // Курс: либо заданный (эталон СНС), либо σ_bg/Ω_h под выставку по
+    // вращению Земли. Ω_h = ω_E·cos(lat); 1e-10 — защита на полюсе.
+    const double sig_hdg0 = (sig_heading > 0.0)
+                                ? sig_heading
+                                : cfg.sig_bg / fmax(fabs(cos(lat_rad)) * U_EARTH, 1e-10);
+
     const double sigma[ins::KF_STATE] = {
         2.0 * cfg.sig_pos, 2.0 * cfg.sig_pos, 2.0 * cfg.sig_h,
         2.5, 2.5, 2.5,
-        cfg.sig_bg / fmax(fabs(cos(lat_rad)) * U_EARTH, 1e-10), 1.0 * DEG_TO_RAD, 1.0 * DEG_TO_RAD,
+        sig_hdg0, 1.0 * DEG_TO_RAD, 1.0 * DEG_TO_RAD,
         sig_ba, sig_ba, sig_ba,
         sig_bg, sig_bg, sig_bg};
 
@@ -76,7 +90,8 @@ inline Matrix initialCovariance(const ins::KalmanConfig &cfg, double lat_rad)
     return P0;
 }
 
-// P₀ по текущей (глобальной) конфигурации — поведение без изменений.
+// P₀ по текущей (глобальной) конфигурации — поведение без изменений
+// (сигнальный курс из gyro-compassing).
 inline Matrix initialCovariance(double lat_rad)
 {
     return initialCovariance(ins::kalman_cfg, lat_rad);
@@ -91,17 +106,18 @@ inline ins::Attitude referenceAttitude(const SnsSample &first)
     return att;
 }
 
-inline NavState initialAlignment(const SnsSample &first, const ins::Attitude &att)
-{
-    NavState st;
-
-    st.att = att;
-    st.lat = first.lat;
-    st.lon = first.lon;
-    st.alt = first.alt;
-    st.V = {first.vn, first.vh, first.ve};
-    st.P = initialCovariance(st.lat);
-    return st;
+inline NavState initialAlignment(const SnsSample &first, const ins::Attitude &att,
+                                 double sig_heading = -1.0)
+{
+    NavState st;
+
+    st.att = att;
+    st.lat = first.lat;
+    st.lon = first.lon;
+    st.alt = first.alt;
+    st.V = {first.vn, first.vh, first.ve};
+    st.P = initialCovariance(ins::kalman_cfg, st.lat, sig_heading);
+    return st;
 }
 
 inline NavState initialAlignment(const SnsSample &first, double yaw, double pitch, double roll)
@@ -113,23 +129,27 @@ inline NavState initialAlignment(const SnsSample &first, double yaw, double pitc
     return initialAlignment(first, att);
 }
 
-inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
-                                 double yaw, double pitch, double roll,
-                                 const Vector &ba_init = {0.0, 0.0, 0.0})
-{
-    NavState st;
-
-    st.att.heading = yaw;
-    st.att.pitch = pitch;
-    st.att.roll = roll;
-    st.lat = lat_rad;
-    st.lon = lon_rad;
-    st.alt = alt;
-    st.V = {0.0, 0.0, 0.0};
-    st.ba = ba_init;
-    st.bg = {0.0, 0.0, 0.0};
-    st.P = initialCovariance(st.lat);
-    return st;
+// ba_init — начальное смещение акселерометра из выставки;
+// sig_heading — σ начального курса, рад (<= 0 — формула выставки σ_bg/Ω_h).
+// Этап 4 плана (R5): при курсе из эталона СНС передаётся его шум.
+inline NavState initialAlignment(double lat_rad, double lon_rad, double alt,
+                                 double yaw, double pitch, double roll,
+                                 const Vector &ba_init = {0.0, 0.0, 0.0},
+                                 double sig_heading = -1.0)
+{
+    NavState st;
+
+    st.att.heading = yaw;
+    st.att.pitch = pitch;
+    st.att.roll = roll;
+    st.lat = lat_rad;
+    st.lon = lon_rad;
+    st.alt = alt;
+    st.V = {0.0, 0.0, 0.0};
+    st.ba = ba_init;
+    st.bg = {0.0, 0.0, 0.0};
+    st.P = initialCovariance(ins::kalman_cfg, st.lat, sig_heading);
+    return st;
 }
 
 } // namespace nav

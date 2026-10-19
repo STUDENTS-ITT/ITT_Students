@@ -136,8 +136,11 @@ QString hms(double t)
 
 // Записывает синтетический датасет нового формата (imu.data / gps.data /
 // angle.data, время ЧЧ:ММ:СС.дробь) в каталог.
+// yaw_deg — базовый эталонный курс, град; yaw_step_deg — чередование ±шага по
+// строкам (для проверки оценки шума эталона в Этапе 4/R5).
 bool writeNewDataset(const QString &dir, int imu_rows, int gps_rows, bool with_angle,
-                     double lat_deg = 22.5, double lon_deg = 114.0)
+                     double lat_deg = 22.5, double lon_deg = 114.0,
+                     double yaw_deg = 0.0, double yaw_step_deg = 0.0)
 {
     {
         QFile f(dir + "/imu.data");
@@ -173,8 +176,13 @@ bool writeNewDataset(const QString &dir, int imu_rows, int gps_rows, bool with_a
         for (int i = 0; i < gps_rows; i++)
         {
             const double t = 0.2 * i;
-            f.write(QString("%1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\n")
+            const double yaw = yaw_deg * DEG_TO_RAD +
+                               (i == 0 ? 0.0
+                                       : ((i % 2) ? yaw_step_deg : -yaw_step_deg) *
+                                             DEG_TO_RAD);
+            f.write(QString("%1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t%2\n")
                         .arg(hms(t))
+                        .arg(yaw, 0, 'f', 9)
                         .toUtf8());
         }
     }
@@ -244,6 +252,11 @@ private slots:
     void fullRunProducesSummary();
     void runWritesFiles();
     void runsNewFormatDataset();
+    // Этап 4 плана docs/bias_estimation_plan.md (R4, R5).
+    void initialCovarianceHeadingSigma();
+    void initialHeadingComesFromAngleReference();
+    void headingSigmaUsesReferenceNoise();
+    void gyroCompassingUnreliableWithoutAngleReference();
 };
 
 void TestSimulation::countsImuRows()
@@ -632,6 +645,109 @@ void TestSimulation::runsNewFormatDataset()
     QVERIFY(QFileInfo::exists(dir.path() + "/result.txt"));
     QVERIFY(QFileInfo::exists(dir.path() + "/reference.txt"));
     QVERIFY(QFileInfo::exists(dir.path() + "/errors.txt"));
+}
+
+// Этап 4 плана docs/bias_estimation_plan.md (R4, R5): начальный курс и его
+// неопределённость.
+
+// R5: σ начального курса в P0. Без явного аргумента — формула выставки
+// σ_bg/Ω_h (gyro-compassing), с заданным σ — ровно σ² (эталон СНС).
+void TestSimulation::initialCovarianceHeadingSigma()
+{
+    const auto &cfg = ins::kalman_cfg;
+    const double lat = 47.6 * DEG_TO_RAD;
+
+    const Matrix p_gc = nav::initialCovariance(cfg, lat);
+    const double sig_gc = cfg.sig_bg / (fabs(cos(lat)) * U_EARTH);
+    QVERIFY(qAbs(at(p_gc, 6, 6, ins::KF_STATE) - sig_gc * sig_gc) < 1e-15);
+
+    const Matrix p_sns = nav::initialCovariance(cfg, lat, cfg.sig_hdg);
+    QVERIFY(qAbs(at(p_sns, 6, 6, ins::KF_STATE) - cfg.sig_hdg * cfg.sig_hdg) < 1e-18);
+}
+
+// R5: при наличии angle.dat начальный курс берётся из первого отсчёта СНС, а
+// не из gyro-compassing (на нулевых гироскопах тот дал бы 0°), и достоверен,
+// даже если сама выставка проверку по вращению Земли не прошла.
+void TestSimulation::initialHeadingComesFromAngleReference()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const double yaw_deg = 12.5;
+    QVERIFY(writeNewDataset(dir.path(), 700, 40, true, 22.5, 114.0, yaw_deg));
+
+    nav::RunOptions options;
+    options.data_dir = dir.path().toStdString();
+    options.output_dir = dir.path().toStdString();
+    options.write_files = false;
+
+    nav::RunSummary summary;
+    QVERIFY(nav::runSimulation(options, summary, nullptr, nullptr, nullptr));
+
+    QVERIFY(summary.ok);
+    QVERIFY(summary.has_angle);
+    QVERIFY(summary.heading_from_sns);
+    QVERIFY(qAbs(summary.yaw0_deg - yaw_deg) < 1e-6);
+
+    // Шум эталона на этих строках нулевой → P0(курс) = настроенный σ_hdg.
+    QVERIFY(qAbs(summary.sig_heading0 - ins::kalman_cfg.sig_hdg) < 1e-15);
+
+    // Гироскопы нулевые, значит выставке не поверить — но курс взят из
+    // эталона, поэтому начальный курс достоверен.
+    QVERIFY(summary.gyro_compass_ratio > 0.3);
+    QVERIFY(summary.heading_reliable);
+}
+
+// R5: если фактический шум эталона курса больше настроенного σ_hdg, P0(курс)
+// берётся по данным (оценка по окну выставки), а не занижается.
+void TestSimulation::headingSigmaUsesReferenceNoise()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const double step_rad = 0.01;
+    QVERIFY(writeNewDataset(dir.path(), 700, 40, true, 22.5, 114.0, 0.0,
+                            step_rad * 180.0 / PI));
+
+    nav::RunOptions options;
+    options.data_dir = dir.path().toStdString();
+    options.output_dir = dir.path().toStdString();
+    options.write_files = false;
+
+    nav::RunSummary summary;
+    QVERIFY(nav::runSimulation(options, summary, nullptr, nullptr, nullptr));
+
+    QVERIFY(summary.ok);
+    QVERIFY(summary.heading_from_sns);
+    // Отсчёты эталона чередуются ±step вокруг первого → σ̂ ≈ step > σ_hdg.
+    QVERIFY(summary.sig_heading0 > ins::kalman_cfg.sig_hdg);
+    QVERIFY(qAbs(summary.sig_heading0 - step_rad) < 0.01 * step_rad);
+}
+
+// R4: без angle.dat курс остаётся из gyro-compassing, и проверка согласованности
+// с вращением Земли (нулевые гироскопы → |ω_h| ≈ 0 ≠ Ω_h) признаёт его
+// недостоверным; P0(курс) при этом — формула выставки.
+void TestSimulation::gyroCompassingUnreliableWithoutAngleReference()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(writeNewDataset(dir.path(), 700, 40, false));
+
+    nav::RunOptions options;
+    options.data_dir = dir.path().toStdString();
+    options.output_dir = dir.path().toStdString();
+    options.write_files = false;
+
+    nav::RunSummary summary;
+    QVERIFY(nav::runSimulation(options, summary, nullptr, nullptr, nullptr));
+
+    QVERIFY(summary.ok);
+    QVERIFY(!summary.has_angle);
+    QVERIFY(!summary.heading_from_sns);
+    QVERIFY(summary.gyro_compass_ratio > 0.3);
+    QVERIFY(!summary.heading_reliable);
+
+    const double lat = 22.5 * DEG_TO_RAD;
+    const double sig_gc = ins::kalman_cfg.sig_bg / (fabs(cos(lat)) * U_EARTH);
+    QVERIFY(qAbs(summary.sig_heading0 - sig_gc) < 1e-12);
 }
 
 QTEST_MAIN(TestSimulation)

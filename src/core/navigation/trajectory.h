@@ -310,7 +310,14 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
                             has_heading_ref ? ref.heading : st.att.heading,
                             st.att.pitch, st.att.roll};
 
-        const double SIG_HDG = ins::kalman_cfg.sig_hdg;
+        // Этап 4 плана (R4): без эталона курса строка курса фиктивна, но её
+        // обновление при обычном R сжимало бы P[6][6] до σ_hdg, т.е. «доказы-
+        // вало» бы достоверность курса, которой нет: P0(курс) приходился бы на
+        // один кадр, и состоянием дальше нельзя было бы двигать. R раздуваем
+        // так же, как для тангажа/крена, — курс остаётся с тем неопределённым
+        // приором, что дала выставка.
+        const double SIG_HDG = has_heading_ref ? ins::kalman_cfg.sig_hdg
+                                                : 1e6 * DEG_TO_RAD;
         const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;
 
         // В консоли диагностика не нужна — лишние обращения матриц не считаем.

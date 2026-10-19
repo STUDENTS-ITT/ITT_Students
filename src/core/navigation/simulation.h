@@ -61,10 +61,21 @@ struct RunSummary
     double start_lat_deg = 0;
     double start_alt = 0;
     double align_time_s = 0;
-    double yaw0_deg = 0;       // начальный курс из выставки, град
+    double yaw0_deg = 0;       // принятый начальный курс, град (angle.dat либо выставка)
     double pitch0_deg = 0;
     double roll0_deg = 0;
     double ba[3] = {0, 0, 0};  // смещение акселерометра из выставки, м/с²
+    // Этап 4 плана docs/bias_estimation_plan.md (R4, R5): курс взят из
+    // angle.dat (первый отсчёт СНС), а не из gyro-compassing.
+    bool heading_from_sns = false;
+    // Достоверность начального курса (R4). false — gyro-compassing
+    // недостоверен (отношение > 0.3) либо эталона курса нет.
+    bool heading_reliable = true;
+    // ||ω_h| − Ω_h|/Ω_h по окну выставки — заниженная оценка |bg_гор|/Ω_h;
+    // < 0 — диагностика недоступна (кадров выставки не было).
+    double gyro_compass_ratio = -1.0;
+    // σ начального курса (корень диагонали P₀[6][6]), рад.
+    double sig_heading0 = 0.0;
     std::size_t steps = 0;         // число выполненных тактов
     std::size_t corrections = 0;   // число коррекций по СНС
     // Пропущено битых строк imu.dat (неполный формат, NaN). Диагностика

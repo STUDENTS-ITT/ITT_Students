@@ -1,0 +1,25 @@
+﻿traj r4 - spiral_climb
+rows: 3992
+
+pos    1.1790e-002   1.0200e-002
+vel    2.2025e-001   1.5110e-001
+att    1.2117e-002   7.0000e-004
+ba     8.2007e-005   0.0000e+000
+bg     3.4191e-006   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=2.0421e-002  final=-1.0200e-002
+  x3   rms=2.6710e-001  final=1.5110e-001
+  x4   rms=7.0678e-002  final=-2.8600e-002
+  x5   rms=2.6303e-001  final=-1.3500e-002
+  x6   rms=4.8096e-003  final=7.0000e-004
+  x7   rms=1.5195e-002  final=0.0000e+000
+  x8   rms=1.3654e-002  final=0.0000e+000
+  x9   rms=7.2908e-005  final=0.0000e+000
+  x10  rms=9.4102e-005  final=0.0000e+000
+  x11  rms=7.7489e-005  final=0.0000e+000
+  x12  rms=2.7414e-006  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=5.2493e-006  final=0.0000e+000

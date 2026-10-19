@@ -167,10 +167,18 @@ using AlignImuProvider = std::function<bool(double &Time, double &Wx, double &Wy
 
 // Ядро выставки по потоку строк ИМУ. write_dump — писать ли отладочный дамп
 // ../data/processed/Aligner.dat.
+//
+// omega_h_horiz (можно nullptr) — измеренная горизонтальная составляющая
+// угловой скорости в конце окна выставки, рад/с: среднее |(Wn, We)| по тем же
+// кадрам, что и курс. Нужна проверке годности gyro-compassing (R4, Этап 4
+// плана docs/bias_estimation_plan.md): обратное неравенство треугольника даёт
+//   ||ω_h| − Ω_h| ≤ |bg_гор|,  Ω_h = ω_E·cos(lat),
+// т.е. отношение ||ω_h| − Ω_h|/Ω_h — заниженная, но наблюдаемая оценка
+// |bg_гор|/Ω_h. Не заполняется (-1), если кадров выставки не было.
 void alignFromImuProvider(const AlignImuProvider &next,
                           double *Yaw, double *Pitch, double *Roll,
                           double *ba_x, double *ba_y, double *ba_z,
                           double lat_deg, double h, double iter,
-                          bool write_dump = true);
+                          bool write_dump = true, double *omega_h_horiz = nullptr);
 
 #endif
