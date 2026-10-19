@@ -320,10 +320,12 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
                                                 : 1e6 * DEG_TO_RAD;
         const double SIG_TILT_IGNORE = 1e6 * DEG_TO_RAD;
 
-        // В консоли диагностика не нужна — лишние обращения матриц не считаем.
+        // Диагностика согласованности (NIS) считается только если её просит
+        // приёмник результатов: иначе лишних обращений матриц нет.
+        const bool want_consistency = sink.wantsConsistency();
         ins::CorrectionStats stats;
         ins::correct(bins, sns, st.x, st.P, SIG_HDG, SIG_TILT_IGNORE, SIG_TILT_IGNORE,
-                     telemetry != nullptr ? &stats : nullptr);
+                     (telemetry != nullptr || want_consistency) ? &stats : nullptr);
 
         if (telemetry != nullptr)
         {
@@ -339,6 +341,18 @@ inline void step(const std::vector<double> &row, const SnsSample &ref,
         }
 
         sink.writeErrors(time_s, st.x);
+
+        // Строка согласованности — только на кадрах фактической коррекции
+        // (SNS под 1 Гц) и только по запросу приёмника.
+        if (want_consistency && stats.valid)
+        {
+            data_io::ConsistencyRecord crec;
+            crec.time = time_s;
+            crec.nis = stats.nis;
+            crec.dof = stats.dof;
+            sink.writeConsistency(crec);
+        }
+
         applyKalmanCorrections(st);
         sink.writeReference(makeReference(time_s, ref));
     }

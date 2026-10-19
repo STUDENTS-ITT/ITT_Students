@@ -40,6 +40,10 @@ struct RunOptions
     // docs/bias_estimation_plan.md). Диагностика: на result.txt/reference.txt/
     // errors.txt не влияет, поэтому test_parity сохраняется.
     bool write_bias_log = false;
+    // Писать ли consistency.txt — согласованность фильтра (NIS) на кадрах
+    // коррекции по СНС (FUTURE_PROPOSALS.md, раздел 12). Диагностика: на
+    // result.txt/reference.txt/errors.txt не влияет, test_parity сохраняется.
+    bool write_consistency = false;
     bool capture_telemetry = false;  // считать ли диагонали P и инновацию z
     // Источник входных данных. nullptr — файловый источник по data_dir.
     // Заданный источник (например, MockDataSource) позволяет прогонять ту же

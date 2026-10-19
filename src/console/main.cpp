@@ -14,6 +14,8 @@
 //   --bias-log     писать bias.txt — журнал оценок смещений ДУС/акселя
 //   --bias-report  прогнать набор и вывести сводную таблицу по смещениям
 //                  (истина из params.json / оценка / σ(P) / норм. ошибка)
+//   --consistency  писать consistency.txt — согласованность фильтра (NIS)
+//                  на кадрах коррекции по СНС (FUTURE_PROPOSALS.md, раздел 12)
 
 #include <chrono>
 #include <cstdio>
@@ -35,12 +37,14 @@ int main(int argc, char **argv)
     // сломать существующий вызов `imitator <каталог> <settings.ini>`.
     bool write_bias_log = false;
     bool bias_report = false;
+    bool write_consistency = false;
     std::vector<std::string> positional;
 
     for (int i = 1; i < argc; i++)
     {
         if (std::strcmp(argv[i], "--bias-log") == 0) write_bias_log = true;
         else if (std::strcmp(argv[i], "--bias-report") == 0) bias_report = true;
+        else if (std::strcmp(argv[i], "--consistency") == 0) write_consistency = true;
         else positional.push_back(argv[i]);
     }
 
@@ -59,6 +63,7 @@ int main(int argc, char **argv)
     options.settings_file = settings_file;
     options.write_files = true;
     options.write_bias_log = write_bias_log;
+    options.write_consistency = write_consistency;
     options.capture_telemetry = false;
 
     // Режим --bias-report: прогон с журналом смещений + сводная таблица.

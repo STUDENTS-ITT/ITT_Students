@@ -223,14 +223,19 @@ H: столбцы x[6..8] (углы) и x[9..11] (смещения акселя)
       `has_heading_ref ? ref.heading : att.heading, att.pitch, att.roll}`
       (без `angle.dat` инновация курса нулевая — фильтр не тянет курс к нулю);
     - `ins::correct(bins, sns, x, P, has_heading_ref ? sig_hdg : 1e6·DEG_TO_RAD,`
-      `1e6·DEG_TO_RAD, 1e6·DEG_TO_RAD, telemetry ? &stats : nullptr)`
+      `1e6·DEG_TO_RAD, 1e6·DEG_TO_RAD, need_stats ? &stats : nullptr)`
       *(Этап 4: без эталона курса строка курса обезвешена тем же `R`, что и
       тангаж/крен, — иначе фиктивное наблюдение за один кадр сжимало
       `P[6][6]` до `sig_hdg` и «доказывало» бы достоверность курса, которой
       нет);*
     - заполнение телеметрии (инновация, статистика);
     - `sink.writeErrors(time_s, st.x)`; `applyKalmanCorrections(st)`;
-      `sink.writeReference(makeReference(time_s, ref))`.
+      `sink.writeReference(makeReference(time_s, ref))`;
+    - при `stats.valid` и `sink.wantsConsistency()` —
+      `sink.writeConsistency({time_s, stats.nis, stats.dof})`.
+      `need_stats = (telemetry != nullptr || sink.wantsConsistency())`: NIS
+      считается только если его кто-то просит (GUI или флаг `--consistency`),
+      иначе накладных расходов нет.
 16. Если `kalman_cfg.gnss_guard_log > 0.5` — сформировать `SnsGuardRecord` и
     `sink.writeGuard(...)`.
 17. `sink.writeResult(makeResult(time_s, st))` на каждом такте.
@@ -250,6 +255,9 @@ H: столбцы x[6..8] (углы) и x[9..11] (смещения акселя)
 - `std::string output_dir` — каталог для `result.txt`/`reference.txt`/`errors.txt`;
 - `std::string settings_file` — `settings.ini` (пусто — значения по умолчанию);
 - `bool write_files = true` — писать ли файлы;
+- `bool write_bias_log = false` — писать ли `bias.txt` (журнал смещений ИМУ);
+- `bool write_consistency = false` — писать ли `consistency.txt` (NIS на кадрах
+  коррекции); при включении ядро считает `NIS` (см. `NavSink::wantsConsistency`);
 - `bool capture_telemetry = false` — считать ли `P_diag` и инновацию;
 - `data_io::IDataSource *source = nullptr` — источник (nullptr — файловый по
   `data_dir`; заданный позволяет считать без файлов);

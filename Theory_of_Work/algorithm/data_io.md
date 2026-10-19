@@ -146,6 +146,13 @@ angle.dat: time_s  timestamp_ns  roll pitch yaw
 Поля `gate/nis/sig_pos_pred/thresh/infl` из раздела 8 дизайна не пишутся
 (уровни 3–5 не реализованы); `gate` в выводе всегда `ENABLED`.
 
+### `struct ConsistencyRecord`
+
+Строка согласованности фильтра (`FUTURE_PROPOSALS.md`, раздел 12): `time`,
+`nis = innovᵀ·S⁻¹·innov`, `dof` (по умолчанию `KF_MEAS = 9`). Пишется только на
+кадрах коррекции по СНС. `NEES` намеренно не выводится: `zᵀ·P_meas⁻¹·z` численно
+недостоверен (`docs/accuracy_reserve_diagnostics.md`, раздел 6).
+
 ### `class NavSink` (интерфейс приёмника)
 
 - `virtual void writeHeader() {}`;
@@ -153,6 +160,11 @@ angle.dat: time_s  timestamp_ns  roll pitch yaw
 - `virtual void writeReference(const NavReference &r) = 0`;
 - `virtual void writeErrors(double time, const Vector &x) = 0`;
 - `virtual void writeGuard(const SnsGuardRecord &r) {}` — по умолчанию ничего;
+- `virtual void writeConsistency(const ConsistencyRecord &r) {}` — по умолчанию
+  ничего;
+- `virtual bool wantsConsistency() const { return false; }` — нужна ли
+  согласованность этому приёмнику. Ядро считает `NIS` только если её просит
+  хотя бы один приёмник (иначе накладных расходов нет и результаты не меняются);
 - `virtual void close() {}`.
 
 `nav::step` принимает `NavSink&`, поэтому один расчёт пишет и в файлы, и в
@@ -160,9 +172,11 @@ angle.dat: time_s  timestamp_ns  roll pitch yaw
 
 ### `class NavLogger : public NavSink`
 
-Запись в `result.txt`, `reference.txt`, `errors.txt` и лениво `gnss_guard.txt`.
+Запись в `result.txt`, `reference.txt`, `errors.txt` и лениво
+`gnss_guard.txt`/`consistency.txt`.
 - `bool open(result_path, reference_path, error_path)` — открывает три файла;
-  путь к `gnss_guard.txt` выводится из пути `result.txt` (рядом с ним).
+  пути к `gnss_guard.txt` и `consistency.txt` выводятся из пути `result.txt`
+  (рядом с ним).
 - `writeHeader()` — заголовки: результат/эталон — 10 колонок (`time lon lat alt
   heading pitch roll vn vh ve`), ошибки — `time x0 … x14`.
 - `writeResult`/`writeReference` — `fixed`, `setprecision(8)`, ширина колонки
@@ -171,15 +185,24 @@ angle.dat: time_s  timestamp_ns  roll pitch yaw
 - `writeGuard` — лениво открывает `gnss_guard.txt` (`openGuardFile`), ведёт
   сводку (отрезки STALE, причины отклонений по новым кадрам, счётчики);
   `setprecision(6)`.
-- `close()` — дописывает итоговую сводку в `gnss_guard.txt` и закрывает файлы.
+- `setConsistencyEnabled(bool)` / `wantsConsistency()` — включение выгрузки
+  `consistency.txt`; `writeConsistency` лениво открывает файл
+  (`openConsistencyFile`) и пишет по строке `time nis dof` на кадр коррекции
+  (`setprecision(6)`; при выключенном флаге — вообще ничего не делает).
+- `close()` — дописывает итоговую сводку в `gnss_guard.txt` и строку
+  `# Кадров коррекции N.` в `consistency.txt`, закрывает файлы.
 - Поля приватные: три `ofstream`, `guard_path_`, `guard_file_`, `guard_tried_`,
   счётчики `guard_records_/accepted_/rejected_/applied_/manual_frames_`,
   `guard_rejected_by_[8]`, `guard_stale_seconds_`, `guard_stale_last_`,
-  `guard_first_time_`, `guard_last_time_`.
+  `guard_first_time_`, `guard_last_time_`, а также `consistency_enabled_`,
+  `consistency_path_`, `consistency_file_`, `consistency_tried_`,
+  `consistency_records_`.
 
 ### `class TeeSink : public NavSink`
 
-Дублирует поток в два приёмника `a_` и `b_` (файлы + память GUI).
+Дублирует поток в два приёмника `a_` и `b_` (файлы + память GUI);
+`writeConsistency` форвардится в оба, `wantsConsistency()` —
+дизъюнкция запросов `a_` и `b_`.
 
 ---
 

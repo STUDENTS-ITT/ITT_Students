@@ -251,6 +251,7 @@ private slots:
     void pacerCanStopRun();
     void fullRunProducesSummary();
     void runWritesFiles();
+    void consistencyWrittenOnlyOnRequest();
     void runsNewFormatDataset();
     // Этап 4 плана docs/bias_estimation_plan.md (R4, R5).
     void initialCovarianceHeadingSigma();
@@ -608,6 +609,58 @@ void TestSimulation::runWritesFiles()
         lines++;
     }
     QCOMPARE(lines, int(summary.steps) + 1);
+}
+
+// Согласованность фильтра (FUTURE_PROPOSALS.md, раздел 12): consistency.txt
+// пишется только по флагу RunOptions::write_consistency и только на кадрах
+// коррекции по СНС. Без флага ядро не считает NIS, файла нет.
+void TestSimulation::consistencyWrittenOnlyOnRequest()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(writeDataset(dir.path(), 300, 15, true));
+
+    const QString path = dir.path() + "/consistency.txt";
+
+    nav::RunOptions off;
+    off.data_dir = dir.path().toStdString();
+    off.output_dir = dir.path().toStdString();
+    off.write_files = true;
+    nav::RunSummary summary_off;
+    QVERIFY(nav::runSimulation(off, summary_off, nullptr, nullptr, nullptr));
+    QVERIFY(!QFileInfo::exists(path));
+
+    nav::RunOptions on = off;
+    on.write_consistency = true;
+    nav::RunSummary summary;
+    QVERIFY(nav::runSimulation(on, summary, nullptr, nullptr, nullptr));
+    QVERIFY(QFileInfo::exists(path));
+
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(f.readAll());
+    QVERIFY(text.contains("time"));
+    QVERIFY(text.contains("nis"));
+    QVERIFY(text.contains("dof"));
+
+    int rows = 0;
+    const QStringList lines = text.split('\n');
+    for (const QString &line : lines)
+    {
+        if (line.isEmpty() || line.startsWith('#')) continue;
+        const QStringList cols = line.trimmed().split(' ', Qt::SkipEmptyParts);
+        if (cols.size() != 3 || cols[0] == "time") continue;
+        const double nis = cols[1].toDouble();
+        QVERIFY(std::isfinite(nis));
+        // Симметричная положительно определённая S ⇒ NIS > 0; устойчивый
+        // решатель это гарантирует (обращение Гаусса-Жордана давало < 0).
+        QVERIFY(nis > 0.0);
+        QCOMPARE(cols[2].toInt(), ins::KF_MEAS);
+        rows++;
+    }
+    QVERIFY(rows > 0);
+    // Итоговая строка о числе кадров.
+    QVERIFY(text.contains(QString("# Кадров коррекции %1.").arg(rows)));
 }
 
 void TestSimulation::runsNewFormatDataset()

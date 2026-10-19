@@ -27,6 +27,7 @@ private slots:
     void readsNewFormatSnsAndJoinsAngles();
     void skipsGarbageRows();
     void loggerWritesAllThreeFiles();
+    void loggerWritesConsistency();
 };
 
 void TestDataIo::parsesNumericRow()
@@ -357,6 +358,53 @@ void TestDataIo::loggerWritesAllThreeFiles()
     const QString etext = QString::fromUtf8(e.readAll());
     QVERIFY(etext.contains("x14"));
     QVERIFY(etext.contains("0.5000"));
+}
+
+void TestDataIo::loggerWritesConsistency()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString result = dir.filePath("result.txt");
+    const QString reference = dir.filePath("reference.txt");
+    const QString errors = dir.filePath("errors.txt");
+    const QString consistency = dir.filePath("consistency.txt");
+
+    data_io::ConsistencyRecord rec;
+    rec.time = 1.0;
+    rec.nis = 9.5;
+    rec.dof = 9;
+
+    // По умолчанию согласованность не запрашивается и файл не создаётся:
+    // ядро в этом режиме не считает NIS/NEES.
+    data_io::NavLogger off;
+    QVERIFY(off.open(result.toStdString(), reference.toStdString(), errors.toStdString()));
+    QVERIFY(!off.wantsConsistency());
+    off.writeConsistency(rec);
+    off.close();
+    QVERIFY(!QFileInfo::exists(consistency));
+
+    // С флагом файл создаётся лениво — по первой записи.
+    data_io::NavLogger on;
+    QVERIFY(on.open(result.toStdString(), reference.toStdString(), errors.toStdString()));
+    on.setConsistencyEnabled(true);
+    QVERIFY(on.wantsConsistency());
+    on.writeConsistency(rec);
+    rec.time = 2.0;
+    rec.nis = 11.25;
+    on.writeConsistency(rec);
+    on.close();
+
+    QVERIFY(QFileInfo::exists(consistency));
+    QFile f(consistency);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(f.readAll());
+    QVERIFY(text.contains("time"));
+    QVERIFY(text.contains("nis"));
+    QVERIFY(text.contains("11.250000"));
+    QVERIFY(text.contains("9"));
+    // Итоговая строка о числе кадров — признак корректного close().
+    QVERIFY(text.contains("# Кадров коррекции 2."));
 }
 
 // Приёмник-память: проверка интерфейса NavSink без файлов.

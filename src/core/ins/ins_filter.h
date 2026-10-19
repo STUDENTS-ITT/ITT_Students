@@ -278,10 +278,21 @@ inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P,
     //   NEES = innovᵀ·P_meas⁻¹·innov — по ковариации состояния, без R
     if (stats != nullptr)
     {
-        const Matrix Sinv = return_matrix(S, KF_MEAS);
+        // NIS считаем через решение S·y = innov методом Холецкого: S
+        // симметрична и положительно определена, а её элементы различаются на
+        // порядки (рад² против м²/с²), поэтому обращение Гауссом-Жорданом даёт
+        // ошибку вплоть до знака квадратичной формы (docs/
+        // accuracy_reserve_diagnostics.md, раздел 6). На сам фильтр (K, x, P)
+        // это не влияет — здесь только диагностика.
+        Vector Sinv_innov;
+        if (!cholesky_solve(S, KF_MEAS, innov, Sinv_innov))
+        {
+            // S не положительно определена — откат к прежнему пути, чтобы
+            // диагностика не пропадала совсем.
+            Sinv_innov = multiply_m(return_matrix(S, KF_MEAS), innov, KF_MEAS);
+        }
 
         double nis = 0.0;
-        const Vector Sinv_innov = multiply_m(Sinv, innov, KF_MEAS);
         for (int i = 0; i < KF_MEAS; i++)
             nis += innov[i] * Sinv_innov[i];
 

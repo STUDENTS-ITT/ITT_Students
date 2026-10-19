@@ -22,9 +22,10 @@ bool NavLogger::open(const std::string &result_path, const std::string &referenc
     // Лог защиты кладётся рядом с result.txt: имя файла фиксировано
     // конвенцией, каталог берётся у результата.
     const std::size_t slash = result_path.find_last_of("/\\");
-    guard_path_ = (slash == std::string::npos ? std::string()
-                                              : result_path.substr(0, slash + 1)) +
-                  "gnss_guard.txt";
+    const std::string dir = (slash == std::string::npos ? std::string()
+                                                        : result_path.substr(0, slash + 1));
+    guard_path_ = dir + "gnss_guard.txt";
+    consistency_path_ = dir + "consistency.txt";
 
     if (!result_file_.is_open())
     {
@@ -171,6 +172,30 @@ bool NavLogger::openGuardFile()
     return true;
 }
 
+bool NavLogger::openConsistencyFile()
+{
+    consistency_tried_ = true;
+    consistency_file_.open(consistency_path_);
+    if (!consistency_file_.is_open())
+    {
+        // Диагностика, а не результат: прогон не прерываем.
+        reportOpenError(consistency_path_);
+        return false;
+    }
+
+    consistency_file_ << "# Согласованность фильтра на кадрах коррекции по СНС\n"
+                         "# (FUTURE_PROPOSALS.md, раздел 12; dof = KF_MEAS = 9).\n"
+                         "# NIS = zᵀ·S⁻¹·z: в согласованном фильтре среднее ≈ dof.\n"
+                         "# NEES не выводится: zᵀ·P_meas⁻¹·z численно недостоверен\n"
+                         "# (docs/accuracy_reserve_diagnostics.md, раздел 6).\n"
+                      << std::left
+                      << std::setw(COL) << "time"
+                      << std::setw(COL) << "nis"
+                      << std::setw(COL) << "dof"
+                      << std::endl;
+    return true;
+}
+
 void NavLogger::writeGuard(const SnsGuardRecord &r)
 {
     if (!guard_tried_ && !openGuardFile()) return;
@@ -215,8 +240,29 @@ void NavLogger::writeGuard(const SnsGuardRecord &r)
                 << std::endl;
 }
 
+void NavLogger::writeConsistency(const ConsistencyRecord &r)
+{
+    // Единственный переключатель — флаг: без него файл не создаётся вовсе.
+    if (!consistency_enabled_) return;
+    if (!consistency_tried_ && !openConsistencyFile()) return;
+    if (!consistency_file_.is_open()) return;
+
+    consistency_records_++;
+    consistency_file_ << std::left << std::fixed << std::setprecision(6)
+                      << std::setw(COL) << r.time
+                      << std::setw(COL) << r.nis
+                      << std::setw(COL) << r.dof
+                      << std::endl;
+}
+
 void NavLogger::close()
 {
+    if (consistency_file_.is_open())
+    {
+        consistency_file_ << "# Кадров коррекции " << consistency_records_ << ".\n";
+        consistency_file_.close();
+    }
+
     if (guard_file_.is_open())
     {
         if (guard_stale_last_ >= 0.0)

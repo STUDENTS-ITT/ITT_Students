@@ -3,7 +3,8 @@
 // NavResult — строка результата БИНС (исправленный Калманом).
 // NavReference — строка эталона СНС.
 // NavLogger — запись в три файла: result.txt, reference.txt, errors.txt;
-//   плюс лениво создаваемый gnss_guard.txt — лог защиты СНС (уровни 1-2).
+//   плюс лениво создаваемые gnss_guard.txt — лог защиты СНС (уровни 1-2) —
+//   и consistency.txt — согласованность фильтра (NIS) на кадрах коррекции.
 
 #pragma once
 
@@ -68,6 +69,20 @@ struct SnsGuardRecord
     std::size_t rejected = 0;           // отклонено кадров (накопительно)
 };
 
+// Строка согласованности фильтра (FUTURE_PROPOSALS.md, раздел 12).
+//
+// Пишется только на кадрах коррекции по СНС (~1 Гц). NEES намеренно не
+// выводится: величина `zᵀ·P_meas⁻¹·z` численно недостоверна (docs/
+// accuracy_reserve_diagnostics.md, раздел 6: средний NEES на square_650
+// = -1.01e6, 99.8 % кадров отрицательны), поэтому согласованность ведётся
+// по NIS, ожидаемое значение — dof.
+struct ConsistencyRecord
+{
+    double time = 0;  // время такта, с
+    double nis = 0;   // innovᵀ·S⁻¹·innov
+    int dof = 9;      // число степеней свободы (размерность H)
+};
+
 // Абстрактный приёмник результатов счисления.
 //
 // nav::step() принимает NavSink&, поэтому один и тот же расчёт может писать
@@ -85,6 +100,11 @@ public:
     // Лог защиты СНС. По умолчанию ничего не делает: пишут только те
     // приёмники, которым он нужен (файловый NavLogger).
     virtual void writeGuard(const SnsGuardRecord &r) { (void)r; }
+    // Согласованность на кадре коррекции. По умолчанию — заглушка.
+    virtual void writeConsistency(const ConsistencyRecord &r) { (void)r; }
+    // Нужна ли согласованность этому приёмнику: если ни один приёмник её не
+    // просит, ядро не считает NIS/NEES и результаты не меняются.
+    virtual bool wantsConsistency() const { return false; }
     virtual void close() {}
 };
 
@@ -103,10 +123,15 @@ public:
     void writeReference(const NavReference &r) override;
     void writeErrors(double time, const Vector &x) override;
     void writeGuard(const SnsGuardRecord &r) override;
+    // Согласованность (NIS) — только по явному запросу (флаг консоли).
+    void setConsistencyEnabled(bool on) { consistency_enabled_ = on; }
+    bool wantsConsistency() const override { return consistency_enabled_; }
+    void writeConsistency(const ConsistencyRecord &r) override;
     void close() override;
 
 private:
     bool openGuardFile();
+    bool openConsistencyFile();
 
     std::ofstream result_file_;
     std::ofstream reference_file_;
@@ -115,6 +140,12 @@ private:
     std::string guard_path_;      // путь к gnss_guard.txt (из пути result.txt)
     std::ofstream guard_file_;
     bool guard_tried_ = false;    // попытка открытия уже была
+
+    bool consistency_enabled_ = false;      // пишем ли consistency.txt
+    std::string consistency_path_;          // путь (из пути result.txt)
+    std::ofstream consistency_file_;
+    bool consistency_tried_ = false;        // попытка открытия уже была
+    std::size_t consistency_records_ = 0;   // записано кадров коррекции
 
     // Сводка по логу (черновик, раздел 8).
     std::size_t guard_records_ = 0;
@@ -159,6 +190,15 @@ public:
     {
         a_.writeGuard(r);
         b_.writeGuard(r);
+    }
+    void writeConsistency(const ConsistencyRecord &r) override
+    {
+        a_.writeConsistency(r);
+        b_.writeConsistency(r);
+    }
+    bool wantsConsistency() const override
+    {
+        return a_.wantsConsistency() || b_.wantsConsistency();
     }
     void close() override
     {

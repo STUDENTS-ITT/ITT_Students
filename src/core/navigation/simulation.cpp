@@ -63,6 +63,16 @@ public:
         if (file_ != nullptr) file_->writeGuard(r);
     }
 
+    void writeConsistency(const data_io::ConsistencyRecord &r) override
+    {
+        if (file_ != nullptr) file_->writeConsistency(r);
+    }
+
+    bool wantsConsistency() const override
+    {
+        return file_ != nullptr && file_->wantsConsistency();
+    }
+
     void close() override
     {
         if (file_ != nullptr) file_->close();
@@ -411,6 +421,12 @@ bool runSimulation(const RunOptions &options, RunSummary &summary,
             src->close();
             return false;
         }
+        // Согласованность (NIS) — только по флагу: иначе ядро не считает
+        // NIS/NEES вовсе и файл не создаётся (test_parity сохраняется).
+        file_logger.setConsistencyEnabled(options.write_consistency);
+        if (options.write_consistency && log)
+            *log << "consistency log: " << (tools_dir / "consistency.txt").string()
+                 << std::endl;
         file_sink = &file_logger;
     }
 

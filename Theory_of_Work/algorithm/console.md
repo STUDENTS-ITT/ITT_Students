@@ -11,27 +11,40 @@
 Единственная функция:
 
 - `int main(int argc, char **argv)`:
-  1. `data_dir = (argc > 1) ? argv[1] : "../data/raw"` — каталог данных;
-  2. `settings_file = (argc > 2) ? argv[2] : ""` — `settings.ini`
+  1. разбор аргументов: флаги `--bias-log`, `--bias-report`, `--consistency`
+     распознаются в любой позиции, остальное — позиционные аргументы
+     (сохраняется старый вызов `imitator <каталог> <settings.ini>`);
+  2. `data_dir = positional[0]` (по умолчанию `../data/raw`) — каталог данных;
+  3. `settings_file = positional[1]` (по умолчанию пусто) — `settings.ini`
      (пусто — значения по умолчанию). Совместимость со старым плоским
      `params.ini` обеспечивает сам runner;
-  3. `tools_dir = utils::toolsDir(argv[0])` — каталог для результатов;
-  4. заполняет `nav::RunOptions`: `data_dir`, `output_dir = tools_dir`,
-     `settings_file`, `write_files = true`, `capture_telemetry = false`;
-  5. `nav::runSimulation(options, summary, nullptr, nullptr, &std::cout)` —
+  4. `tools_dir = utils::toolsDir(argv[0])` — каталог для результатов;
+  5. заполняет `nav::RunOptions`: `data_dir`, `output_dir = tools_dir`,
+     `settings_file`, `write_files = true`, `write_bias_log`, `write_consistency`,
+     `capture_telemetry = false`;
+  6. при `--bias-report` вызывает `nav::runBiasReport(...)`, печатает таблицу в
+     `stdout` (плюс пишет `bias.txt` и обычные три файла);
+  7. иначе `nav::runSimulation(options, summary, nullptr, nullptr, &std::cout)` —
      вывод лога в `stdout`, без наблюдателя и отмены;
-  6. при ошибке печатает `imitator: run failed` в `stderr` и возвращает 1;
+  8. при ошибке печатает `imitator: run failed` в `stderr` и возвращает 1;
      иначе печатает `summary.wall_seconds` и возвращает 0.
 
 Использование:
 
 ```
-imitator [каталог_данных] [settings.ini]
+imitator [--bias-log] [--bias-report] [--consistency] [каталог_данных] [settings.ini]
 ```
 
 Каталог данных по умолчанию — `../data/raw`. Результаты (`result.txt`,
 `reference.txt`, `errors.txt`, `gnss_guard.txt`) пишутся в `tools/` рядом с
 исполняемым файлом (см. `utils::toolsDir` в [`utils.md`](utils.md)).
+
+Дополнительные файлы:
+
+- `--bias-report` → `bias.txt` (журнал смещений ИМУ) и таблица в `stdout`;
+- `--consistency` → `consistency.txt` (NIS на кадрах коррекции по СНС).
+  Флаг выключен по умолчанию: без него ядро не считает NIS и не тратит время
+  (важно для тюнера, который делает тысячи прогонов).
 
 ---
 
