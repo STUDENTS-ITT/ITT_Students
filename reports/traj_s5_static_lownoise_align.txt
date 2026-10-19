@@ -1,0 +1,26 @@
+traj s5 - static_lownoise_align
+rows: 2995
+
+group       rms         final              
+pos    1.0366e-002   3.7000e-003
+vel    1.1080e-001   5.5000e-002
+att    6.9231e-004   1.0000e-004
+ba     1.3674e-005   0.0000e+000
+bg     0.0000e+000   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=0.0000e+000  final=0.0000e+000
+  x2   rms=1.7954e-002  final=3.7000e-003
+  x3   rms=1.4198e-001  final=-2.7100e-002
+  x4   rms=2.7974e-002  final=-3.4000e-003
+  x5   rms=1.2604e-001  final=-5.5000e-002
+  x6   rms=1.1940e-003  final=1.0000e-004
+  x7   rms=7.9607e-005  final=0.0000e+000
+  x8   rms=7.6919e-005  final=0.0000e+000
+  x9   rms=0.0000e+000  final=0.0000e+000
+  x10  rms=2.3684e-005  final=0.0000e+000
+  x11  rms=0.0000e+000  final=0.0000e+000
+  x12  rms=0.0000e+000  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=0.0000e+000  final=0.0000e+000

@@ -1,0 +1,26 @@
+traj s5 - high_dynamics
+rows: 2987
+
+group       rms         final              
+pos    4.0101e-002   2.1200e-002
+vel    4.1004e-001   4.7320e-001
+att    2.8700e-002   1.3300e-002
+ba     5.8643e-004   1.0000e-004
+bg     1.4015e-005   0.0000e+000
+
+per-column rms:
+  x0   rms=0.0000e+000  final=0.0000e+000
+  x1   rms=2.5876e-006  final=0.0000e+000
+  x2   rms=6.9457e-002  final=-2.1200e-002
+  x3   rms=4.8685e-001  final=-4.7320e-001
+  x4   rms=2.0884e-001  final=-8.5500e-002
+  x5   rms=4.7303e-001  final=1.5810e-001
+  x6   rms=9.6231e-003  final=-1.3300e-002
+  x7   rms=3.4747e-002  final=0.0000e+000
+  x8   rms=3.4221e-002  final=5.2000e-003
+  x9   rms=3.5594e-004  final=0.0000e+000
+  x10  rms=8.7138e-004  final=-1.0000e-004
+  x11  rms=3.8173e-004  final=1.0000e-004
+  x12  rms=1.7740e-005  final=0.0000e+000
+  x13  rms=0.0000e+000  final=0.0000e+000
+  x14  rms=1.6569e-005  final=0.0000e+000

@@ -1,0 +1,26 @@
+traj s5 - square_harsh
+rows: 6599
+
+group       rms         final              
+pos    8.3375e-002   4.3300e-002
+vel    1.4302e+000   1.8444e+000
+att    2.3783e-001   6.0900e-002
+ba     4.9172e-003   1.1000e-003
+bg     1.2757e-004   0.0000e+000
+
+per-column rms:
+  x0   rms=4.2501e-005  final=0.0000e+000
+  x1   rms=5.4887e-005  final=0.0000e+000
+  x2   rms=1.4441e-001  final=-4.3300e-002
+  x3   rms=1.4500e+000  final=3.5900e-001
+  x4   rms=7.0935e-001  final=2.5220e-001
+  x5   rms=1.8791e+000  final=-1.8444e+000
+  x6   rms=2.3700e-002  final=-2.1400e-002
+  x7   rms=2.5040e-001  final=-9.6000e-003
+  x8   rms=3.2624e-001  final=6.0900e-002
+  x9   rms=4.3040e-003  final=-6.0000e-004
+  x10  rms=1.0864e-003  final=1.0000e-004
+  x11  rms=7.2685e-003  final=1.1000e-003
+  x12  rms=1.7614e-004  final=0.0000e+000
+  x13  rms=9.9247e-006  final=0.0000e+000
+  x14  rms=1.3302e-004  final=0.0000e+000
