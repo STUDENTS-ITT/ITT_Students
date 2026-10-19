@@ -11,6 +11,7 @@
 
 #include "core_bridge/run_store.h"
 #include "core_bridge/telemetry_buffer.h"
+#include "core/navigation/bias_report.h"
 #include "settings/dataset_truth.h"
 #include "views/plots/plot_view.h"
 
@@ -113,6 +114,26 @@ public:
     // Единица ошибки величины — подпись оси Y графика ошибок: координаты в
     // метрах, углы в градусах, скорости в м/с (как в таблице отклонений).
     static QString errorUnit(int column);
+
+    // Оценка смещения ИМУ, полоса ±2σ(P) и истина набора на одном графике
+    // (этап 6 плана). Индекс компоненты: 0..2 — ba (X, Y, Z), 3..5 — bg.
+    // Значения — в инженерных единицах, как в params.json и в отчёте по
+    // смещениям: ba — мг (1 мг = 9.80665e-3 м/с²), bg — °/ч. Ряды: оценка,
+    // +2σ(P), −2σ(P) и, если params.json прочитан, истина (пунктиром).
+    // Истина ненаблюдаемой компоненты подписывается явно: на стоянке и на
+    // прямой горизонтальные оси определены только в сумме с наклоном, и
+    // показывать её без пометки значило бы выдавать ложную точность.
+    static QVector<PlotSeries> biasSeries(const RunSeries &series,
+                                          const nav::BiasTruth &truth, int index);
+
+    // Ось смещения в инженерных единицах: «мг» или «°/ч».
+    static QString biasUnit(int index);
+
+    // Подпись компоненты: «ba_X» … «bg_Z» (пусто, если индекс вне 0..5).
+    static QString biasLabel(int index);
+
+    // Подпись блока отчёта: «Смещение акселерометра: ось X (мг)».
+    static QString biasCaption(int index);
 
     // Собрать отчёт по текущему прогону. plot — виджет, который используется
     // как «холст» для отрисовки блоков (его ряды перезаписываются).

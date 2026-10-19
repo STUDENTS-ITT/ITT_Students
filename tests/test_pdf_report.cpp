@@ -6,8 +6,11 @@
 
 #include <QtTest>
 
+#include <cmath>
+
 #include <QTemporaryDir>
 
+#include "core/utils/constants.h"
 #include "core_bridge/telemetry_buffer.h"
 #include "export/pdf_report.h"
 #include "views/plots/time_series_plot.h"
@@ -77,6 +80,7 @@ private slots:
     void buildsPdfWithTruth();
     void blockAxisLabelsAreRestored();
     void plotsDoNotChangeCanvasState();
+    void biasSeriesCarriesEstimateSigmaAndTruth();
 };
 
 void TestPdfReport::summaryCountsRows()
@@ -529,6 +533,64 @@ void TestPdfReport::plotsDoNotChangeCanvasState()
     QCOMPARE(canvas.xMin(), xmin_before);
     QCOMPARE(canvas.xMax(), xmax_before);
     QCOMPARE(canvas.syncMarkers(), QVector<double>({2.0, 7.0}));
+}
+
+// Смещения ИМУ (этап 6 плана): оценка фильтра, полоса ±2σ(P) и истина набора
+// из params.json на одном графике.
+void TestPdfReport::biasSeriesCarriesEstimateSigmaAndTruth()
+{
+    RunSeries run;
+    run.has_bias = true;
+    const int n = 5;
+    for (int i = 0; i < n; i++)
+    {
+        RunSeries::Row r{};
+        r.time = 1.0 * i;
+        r.ba[0] = 1.0e-2;   // м/с²
+        r.bg[2] = 1.0e-5;   // рад/с
+        r.p[9] = 4.0e-6;    // σ(ba_X) = 2e-3 м/с²
+        r.p[14] = 1.0e-10;  // σ(bg_Z) = 1e-5 рад/с
+        run.rows.push_back(r);
+    }
+
+    nav::BiasTruth truth;
+    truth.valid = true;
+    truth.ba[0] = 5.0e-3;         // м/с²
+    truth.bg[2] = 2.0e-5;         // рад/с
+    truth.observable[3] = false;  // bg_X на стоянке ненаблюдаем
+
+    // ba_X: оценка, +2σ, −2σ, истина — всё в мг.
+    const double mg = 1.0 / 9.80665e-3;
+    const QVector<PlotSeries> ba = PdfReport::biasSeries(run, truth, 0);
+    QCOMPARE(ba.size(), 4);
+    QCOMPARE(ba[0].points.size(), n);
+    QVERIFY(std::abs(ba[0].points[0].y() - 1.0e-2 * mg) < 1e-9);
+    QVERIFY(std::abs(ba[1].points[0].y() - (1.0e-2 + 2.0 * 2.0e-3) * mg) < 1e-9);
+    QVERIFY(std::abs(ba[2].points[0].y() - (1.0e-2 - 2.0 * 2.0e-3) * mg) < 1e-9);
+    QCOMPARE(ba[3].points.size(), 2);   // истина — горизонтальная линия
+    QVERIFY(std::abs(ba[3].points[1].y() - 5.0e-3 * mg) < 1e-9);
+    QVERIFY(ba[3].name.contains(QString::fromUtf8("истина")));
+
+    // bg_Z: инженерные единицы °/ч.
+    const double deg_hour = RAD_TO_DEG * 3600.0;
+    const QVector<PlotSeries> bg = PdfReport::biasSeries(run, truth, 5);
+    QCOMPARE(bg.size(), 4);
+    QVERIFY(std::abs(bg[0].points[0].y() - 1.0e-5 * deg_hour) < 1e-9);
+
+    // Ненаблюдаемая компонента подписана явно, линейка истины всё равно есть.
+    const QVector<PlotSeries> bg_x = PdfReport::biasSeries(run, truth, 3);
+    QCOMPARE(bg_x.size(), 4);
+    QVERIFY(bg_x[3].name.contains(QString::fromUtf8("ненаблюдаема")));
+
+    // Без params.json (истина не прочитана) остаются только оценка и полоса.
+    QCOMPARE(PdfReport::biasSeries(run, nav::BiasTruth(), 0).size(), 3);
+
+    // Подписи и единицы; индекс вне 0..5 — пустой ряд.
+    QCOMPARE(PdfReport::biasLabel(0), QStringLiteral("ba_X"));
+    QCOMPARE(PdfReport::biasLabel(5), QStringLiteral("bg_Z"));
+    QCOMPARE(PdfReport::biasUnit(2), QString::fromUtf8("мг"));
+    QCOMPARE(PdfReport::biasUnit(3), QString::fromUtf8("°/ч"));
+    QVERIFY(PdfReport::biasSeries(run, truth, 6).isEmpty());
 }
 
 QTEST_MAIN(TestPdfReport)

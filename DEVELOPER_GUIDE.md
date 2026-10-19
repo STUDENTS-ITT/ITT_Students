@@ -102,6 +102,9 @@ sequenceDiagram
 | `ControlPanel` / `DataPanel` / `ParamsPanel` | `gui/views/*` | Панели управления, данных и параметров. |
 | `TuningPanel` | `gui/views/tuning_panel.h` | Запуск `tools/kalman_tuner/tune_kalman.py` и применение пресетов. |
 | `AppSettings` | `gui/settings/app_settings.h` | Настройки приложения (`QSettings`). |
+| `nav::BiasTruth`, `loadBiasTruth` | `core/navigation/bias_report.h` | Истинные смещения набора из `params.json` и флаги наблюдаемости компонент. |
+| `RunSeries::Row::ba/bg`, `RunSeries::has_bias` | `gui/core_bridge/telemetry_buffer.h` | Оценки смещений ИМУ на такте и признак, что они вообще сняты (у прогонов из истории — нет). |
+| `PdfReport::biasSeries` / `biasUnit` / `biasLabel` / `biasCaption` | `gui/export/pdf_report.h` | Ряды смещений (оценка, ±2σ(P), истина), единицы и подписи — общие для вкладки «Смещения ИМУ» и блоков отчёта. |
 | `PlotExporter` / `exportReportTo` / `AnimationExporter` | `gui/export/*` | Экспорт PNG/JPG/SVG/PDF/CSV/GIF и сводный PDF-отчёт. |
 
 ## 7. Структура
@@ -134,13 +137,21 @@ cmake --build build
 set QT_QPA_PLATFORM=offscreen
 ctest --test-dir build --output-on-failure
 ```
-Тесты включают `core_has_no_qt`, `test_matrix_ops`, `test_transformations`, `test_statistics`, `test_ins_filter`, `test_data_io`, `test_data_source`, `test_settings`, `test_run_store`, `test_simulation`, `test_plots`, `test_pdf_report`, `test_tuning_report`, `test_matrices_exporter`, `test_app_settings`, `test_dataset_truth`, `test_dataset_generator`, `test_parity`, а также GUI-smoke с генерацией набора (`gui_smoke_generate` — CTest fixture, затем `gui_smoke`). Всего 20 тестов.
+Тесты включают `core_has_no_qt`, `gui_smoke_generate`/`gui_smoke` (fixture + GUI-smoke с генерацией набора), `test_matrix_ops`, `test_transformations`, `test_statistics`, `test_ins_filter`, `test_data_io`, `test_data_source`, `test_settings`, `test_simulation`, `test_dataset_generator`, `test_gnss_guard`, `test_bias_estimate`, `test_plots`, `test_run_store`, `test_pdf_report`, `test_tuning_report`, `test_matrices_exporter`, `test_app_settings`, `test_dataset_truth`, `test_preset_meta`, `test_tuner_configs`, `test_parity`. Всего 24 теста.
 
 ## 10. PlotView
 Ключ кэша — версия, размер, диапазоны X/Y. API: `setCacheEnabled`/`isCacheEnabled`/`cacheHits`/`cacheMisses`/`invalidateCache`/`isCacheValid`/`rebuildCache`. При disabled — прямая отрисовка, счётчики не растут. Курсор поверх кэша. Инвалидация обязательна при изменении отрисовки.
 
 ## 11. PDF-отчёт
 `QPdfWriter`, A4, dof=9. Сохранение/восстановление series и sync_markers, графики через `renderTo()`. Блоки собирает `MainWindow::buildReportBlocks()`: траектория, по каждой величине — сам график и график её ошибки (`PdfReport::errorSeries` — знаковое отклонение от истины или эталона СНС, единицы таблицы отклонений), согласованность NIS/NEES. Таблица отклонений и графики ошибок считаются по одним парам «строка — опора» (`matchReferences` в `pdf_report.cpp`), поэтому максимум на графике совпадает с `peak` таблицы.
+
+## 11.1. Смещения ИМУ (журнал, наблюдение, экран, отчёт)
+- Ядро: `core/navigation/bias_report.{h,cpp}` — разбор `params.json` (`nav::BiasTruth` с истиной в СИ и флагами `observable[6]`), таблица приёмки (`BiasReportRow`) и запись журнала `bias.txt` (13 колонок, инженерные единицы). Точка входа консоли — `imitator --bias-report <каталог>`.
+- Единицы: `ba` — мг (`kMs2ToMilliG = 1/9.80665e-3`), `bg` — °/ч (`RAD_TO_DEG·3600`) — те же, что в `params.json` и в отчёте; в СИ смещения порядка 1e-5…1e-2 и глазом не читаются.
+- GUI: телеметрия несёт `NavState::ba/bg` (не путать с `x[9..14]`: компоненты вектора ошибок стремятся к нулю, а `ba`/`bg` — накопленные смещения). Они кладутся в `RunSeries::Row::ba/bg` и флаг `RunSeries::has_bias`; вкладка «Смещения ИМУ» строится `MainWindow::biasSeries()`, блоки отчёта — `PdfReport::biasSeries()` (общая сборка ряда: оценка, ±2σ(P) из диагонали `P`, истина пунктиром). Прореживание: `kMaxPlotPoints` (2000) на экран, `kMaxReportPoints` (600) в отчёт.
+- Ограничение: `runs.db` не хранит `ba`/`bg` (только `result`, диагонали `P` и `NIS/NEES`), поэтому у прогона из истории `has_bias == false`, и вкладка с блоками пусты. Схема БД под это не менялась.
+- Самопроверка `--self-test` проверяет вкладку (`MainWindow::biasSeriesCount()`, 24 ряда = 6 компонент × 4) и собирает два PDF: по живому прогону (с блоками смещений) и по загруженному из истории.
+- Наблюдаемость: на стоянке и на прямой горизонтальные компоненты `ba`/`bg` определены только в сумме с наклоном и начальным курсом, поэтому истина таких компонент подписана «истина (ненаблюдаема)»; подробности — `docs/bias_estimation_plan.md`, раздел 6.
 
 ## 12. История/фильтр
 `HistoryModel` + `QSortFilterProxyModel` (ParamsPanel), фильтр по имени/дате/каталогу, сортировка по дате по умолчанию, `mapToSource()` корректен.

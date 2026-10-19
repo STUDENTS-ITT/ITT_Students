@@ -377,8 +377,70 @@ int main(int argc, char *argv[])
     // Дополнительно проверяем чтение сохранённого прогона из SQLite —
     // это самый недоступный для ручного тестирования участок GUI.
     QString history_note;
+    QString bias_note;
     if (finished && ok)
     {
+        // Пути файлов отчётов — рядом с текстовым отчётом self-test, но всегда
+        // свои имена, чтобы не затереть его.
+        const QString out_dir = report_file.isEmpty() ? QDir::tempPath()
+                                                      : QFileInfo(report_file).absolutePath();
+
+        // Сводный PDF-отчёт: файл должен собраться непустым и начинаться с
+        // сигнатуры PDF. Проверка общая для отчёта по живому прогону и по
+        // сохранённому (detail — размер либо причина отказа).
+        const auto probe_pdf = [&window](const QString &pdf, QString *detail) -> bool {
+            QString error;
+            if (!window.exportReportTo(pdf, &error))
+            {
+                *detail = error.isEmpty() ? QStringLiteral("сборка не удалась") : error;
+                return false;
+            }
+            const qint64 size = QFileInfo(pdf).size();
+            if (size <= 1000)
+            {
+                *detail = QStringLiteral("%1 байт — мал").arg(size);
+                return false;
+            }
+            QFile probe(pdf);
+            if (!probe.open(QIODevice::ReadOnly) || probe.read(4) != QByteArray("%PDF"))
+            {
+                *detail = QStringLiteral("нет сигнатуры PDF");
+                return false;
+            }
+            *detail = QStringLiteral("%1 байт").arg(size);
+            return true;
+        };
+
+        // Вкладка «Смещения ИМУ» проверяется до открытия прогона из истории:
+        // в SQLite оценок смещений нет, поэтому после openRun() ряды пропали бы,
+        // а у только что посчитанного прогона они обязаны собраться. Отчёт по
+        // живому прогону тоже собирается здесь — в него попадают блоки смещений
+        // (оценка, ±2σ и истина), которых у прогона из истории нет.
+        const int bias_series = window.biasSeriesCount();
+        if (bias_series > 0)
+        {
+            bias_note = QString("bias: %1 рядов").arg(bias_series);
+        }
+        else
+        {
+            bias_note = QStringLiteral("bias: ряды оценок смещений не собраны");
+            ok = false;
+        }
+
+        if (ok)
+        {
+            QString detail;
+            const QString live_pdf =
+                QDir(out_dir).filePath(QStringLiteral("imitator_self_test_live.pdf"));
+            if (probe_pdf(live_pdf, &detail))
+                bias_note += QString("; отчёт: %1").arg(detail);
+            else
+            {
+                bias_note += QString("; отчёт: %1").arg(detail);
+                ok = false;
+            }
+        }
+
         const qint64 run_id = window.currentRunId();
         const int rows = run_id > 0 ? window.openRun(run_id) : 0;
         if (rows > 0)
@@ -393,38 +455,18 @@ int main(int argc, char *argv[])
             ok = false;
         }
 
-        // Сводный PDF-отчёт: собираем во временный файл рядом с отчётом о
-        // self-test и проверяем, что файл получился непустым и начинается с
-        // сигнатуры PDF. Путь всегда свой, чтобы не затереть текстовый отчёт.
+        // Отчёт по прогону из истории: ряды читаются из SQLite, поэтому это
+        // проверка того, что отчёт собирается и на восстановленных данных.
         if (ok)
         {
-            QString pdf = QDir(QDir::tempPath()).filePath(QStringLiteral("imitator_self_test.pdf"));
-            if (!report_file.isEmpty())
-            {
-                pdf = QFileInfo(report_file).absolutePath() +
-                      QStringLiteral("/imitator_self_test.pdf");
-            }
-
-            QString report_error;
-            if (window.exportReportTo(pdf, &report_error) && QFileInfo(pdf).size() > 1000)
-            {
-                QFile probe(pdf);
-                if (probe.open(QIODevice::ReadOnly) && probe.read(4) == QByteArray("%PDF"))
-                {
-                    history_note += QString("; report: %1 байт").arg(QFileInfo(pdf).size());
-                }
-                else
-                {
-                    history_note += QString("; report: нет сигнатуры PDF");
-                    ok = false;
-                }
-            }
+            QString detail;
+            const QString pdf =
+                QDir(out_dir).filePath(QStringLiteral("imitator_self_test.pdf"));
+            if (probe_pdf(pdf, &detail))
+                history_note += QString("; report: %1").arg(detail);
             else
             {
-                history_note += QString("; report: %1")
-                                    .arg(report_error.isEmpty()
-                                             ? QStringLiteral("сборка не удалась")
-                                             : report_error);
+                history_note += QString("; report: %1").arg(detail);
                 ok = false;
             }
         }
@@ -491,11 +533,12 @@ int main(int argc, char *argv[])
     }
     else
     {
-        report = QString("self-test: %1 за %2 мс: %3\n%4\n---\n%5")
+        report = QString("self-test: %1 за %2 мс: %3\n%4\n%5\n---\n%6")
                      .arg(ok ? "успех" : "ошибка")
                      .arg(timer.elapsed())
                      .arg(message)
                      .arg(history_note)
+                     .arg(bias_note)
                      .arg(window.logText());
     }
 

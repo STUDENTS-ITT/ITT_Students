@@ -151,7 +151,10 @@ void StatePanel::updateSample(const TelemetrySample &s)
     // Оценка точности по диагоналям P: СКО позиции (м) и СКВ углов (град).
     if (s.p_diag.size() >= 3)
     {
-        const double sxy_m = std::sqrt(std::max(0.0, s.p_diag[0])) * R_EARTH * RAD_TO_DEG;
+        // Широта/долгота в состоянии — радианы, поэтому в метры переводится
+        // только умножением на радиус Земли (RAD_TO_DEG здесь не нужен и
+        // завышал СКО горизонта примерно в 57 раз).
+        const double sxy_m = std::sqrt(std::max(0.0, s.p_diag[0])) * R_EARTH;
         const double sxy_alt = std::sqrt(std::max(0.0, s.p_diag[2]));
         const double shdg = std::sqrt(std::max(0.0, s.p_diag[6])) * RAD_TO_DEG;
         const double spitch = std::sqrt(std::max(0.0, s.p_diag[7])) * RAD_TO_DEG;

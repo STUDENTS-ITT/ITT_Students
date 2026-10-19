@@ -113,6 +113,11 @@ struct RunSeries
         int nis_dof = ins::KF_MEAS;
         bool corrected = false;
         int step_index = 0;
+        // Оценки смещений ИМУ (СИ: м/с² и рад/с) — вкладка «Смещения ИМУ».
+        // Это не компоненты вектора ошибок x[9..14] (те стремятся к нулю по мере
+        // сходимости), а накопленные фильтром смещения NavState::ba/bg.
+        double ba[3] = {0};
+        double bg[3] = {0};
     };
 
     std::vector<Row> rows;
@@ -138,6 +143,12 @@ struct RunSeries
     };
     std::vector<ConsistencyRow> consistency;
 
+    // Оценки смещений ИМУ накоплены (живой прогон с телеметрией). У прогонов,
+    // открытых из истории SQLite, Row::ba/bg не заполняются: таблица прогонов
+    // хранит только результат, диагонали P и NIS/NEES, поэтому вкладка
+    // «Смещения ИМУ» для них пуста.
+    bool has_bias = false;
+
     bool isEmpty() const { return rows.empty(); }
 
     void clear()
@@ -145,6 +156,7 @@ struct RunSeries
         rows.clear();
         corrections.clear();
         consistency.clear();
+        has_bias = false;
     }
 
     std::size_t size() const { return rows.size(); }

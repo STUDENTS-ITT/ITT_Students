@@ -131,23 +131,29 @@ PlotSeries makeSeries(const QString &name, const QVector<double> &times,
     return s;
 }
 
-// Дополнительное прореживание ряда для PDF (см. kMaxReportPoints): равномерная
-// выборка с сохранением обеих крайних точек.
-PlotSeries decimateForReport(const PlotSeries &in)
+// Прореживание ряда до n точек: равномерная выборка с сохранением обеих
+// крайних точек. Применяется и к экранным графикам (kMaxPlotPoints), и к
+// блокам PDF-отчёта (kMaxReportPoints).
+PlotSeries decimateSeries(const PlotSeries &in, int n)
 {
     const int total = in.points.size();
-    if (total <= kMaxReportPoints) return in;
+    if (n < 2 || total <= n) return in;
 
     PlotSeries out = in;
     out.points.clear();
-    out.points.reserve(kMaxReportPoints);
-    for (int i = 0; i < kMaxReportPoints; i++)
+    out.points.reserve(n);
+    for (int i = 0; i < n; i++)
     {
-        const int idx = static_cast<int>(
-            static_cast<qint64>(i) * (total - 1) / (kMaxReportPoints - 1));
+        const int idx = static_cast<int>(static_cast<qint64>(i) * (total - 1) / (n - 1));
         out.points.push_back(in.points[idx]);
     }
     return out;
+}
+
+// Дополнительное прореживание ряда для PDF (см. kMaxReportPoints).
+PlotSeries decimateForReport(const PlotSeries &in)
+{
+    return decimateSeries(in, kMaxReportPoints);
 }
 
 QVector<PlotSeries> decimateForReport(const QVector<PlotSeries> &in)
@@ -155,6 +161,16 @@ QVector<PlotSeries> decimateForReport(const QVector<PlotSeries> &in)
     QVector<PlotSeries> out;
     out.reserve(in.size());
     for (const PlotSeries &s : in) out.push_back(decimateForReport(s));
+    return out;
+}
+
+// Прореживание рядов для экрана (kMaxPlotPoints): ряд смещений ИМУ приходит по
+// каждому такту прогона (десятки тысяч точек), для отрисовки это избыточно.
+QVector<PlotSeries> decimateForPlot(const QVector<PlotSeries> &in)
+{
+    QVector<PlotSeries> out;
+    out.reserve(in.size());
+    for (const PlotSeries &s : in) out.push_back(decimateSeries(s, kMaxPlotPoints));
     return out;
 }
 
@@ -195,13 +211,16 @@ QVector<double> toQVector(const Vector &v)
 }
 
 // Метка компоненты вектора ошибок x.
+//
+// Метки берутся из строк в UTF-8 (исходники компилируются с /utf-8), поэтому
+// fromUtf8, а не fromLatin1: иначе кириллица превращалась бы в мусор.
 QString errorLabel(int i)
 {
     static const char *names[ins::KF_STATE] = {
         "x0 широта", "x1 долгота", "x2 высота", "x3 Vn", "x4 Vh", "x5 Ve",
         "x6 курс", "x7 тангаж", "x8 крен", "x9 ba_x", "x10 ba_y", "x11 ba_z",
         "x12 bg_x", "x13 bg_y", "x14 bg_z"};
-    if (i >= 0 && i < ins::KF_STATE) return QString::fromLatin1(names[i]);
+    if (i >= 0 && i < ins::KF_STATE) return QString::fromUtf8(names[i]);
     return QString("x%1").arg(i);
 }
 
@@ -211,7 +230,7 @@ QString covLabel(int i)
     static const char *names[ins::KF_STATE] = {
         "P00", "P11", "P22", "P33", "P44", "P55", "P66", "P77", "P88",
         "P99", "P1010", "P1111", "P1212", "P1313", "P1414"};
-    if (i >= 0 && i < ins::KF_STATE) return QString::fromLatin1(names[i]);
+    if (i >= 0 && i < ins::KF_STATE) return QString::fromUtf8(names[i]);
     return QString("P%1").arg(i);
 }
 
@@ -221,8 +240,55 @@ QString innovationLabel(int i)
     static const char *names[ins::KF_MEAS] = {
         "Δширота", "Δдолгота", "Δвысота", "ΔVn", "ΔVh", "ΔVe",
         "Δкурс", "Δтангаж", "Δкрен"};
-    if (i >= 0 && i < ins::KF_MEAS) return QString::fromLatin1(names[i]);
+    if (i >= 0 && i < ins::KF_MEAS) return QString::fromUtf8(names[i]);
     return QString("z%1").arg(i);
+}
+
+// Группы компонент вектора ошибок (MainWindow::ErrorGroup): у каждой группы
+// свои единицы, поэтому каждая выводится своим графиком. Индекс группы в этом
+// файле — обычное число (enum класса недоступен свободным функциям).
+int errorGroupFirst(int group)
+{
+    return 3 * group;
+}
+
+// Подпись компоненты j (0..2) группы group в единицах группы: широта и долгота
+// переводятся в метры (север/восток), как в таблице отклонений PDF-отчёта.
+QString errorGroupLabel(int group, int j)
+{
+    const int i = errorGroupFirst(group) + j;
+    if (group != 0) return errorLabel(i);
+    static const char *names[3] = {"широта (север)", "долгота (восток)", "высота"};
+    return QString("%1 %2").arg(errorLabel(i), QString::fromUtf8(names[j]));
+}
+
+// Значение компоненты j группы group в единицах группы. Широта/долгота в
+// состоянии фильтра — радианы: север = x0·R, восток = x1·R·cos φ.
+double errorGroupValue(int group, int j, double x, double lat_deg)
+{
+    if (group != 0) return x;
+    if (j == 0) return x * R_EARTH;
+    if (j == 1) return x * R_EARTH * std::cos(lat_deg * DEG_TO_RAD);
+    return x;
+}
+
+// Широта строк результата (град) в моменты кадров коррекции. Оба ряда идут по
+// возрастанию времени, поэтому достаточно одного прохода двумя указателями
+// (nearestTimeIndex — линейный поиск, в цикле по кадрам он был бы O(n·m)).
+QVector<double> latAtCorrections(const std::vector<RunSeries::Row> &rows,
+                                 const QVector<double> &ct)
+{
+    QVector<double> out(ct.size(), 0.0);
+    if (rows.empty()) return out;
+
+    int j = 0;
+    const int n = static_cast<int>(rows.size());
+    for (int k = 0; k < ct.size(); k++)
+    {
+        while (j + 1 < n && rows[j + 1].time <= ct[k]) j++;
+        out[k] = rows[j].result[RunSeries::Lat];
+    }
+    return out;
 }
 
 // Цвет истинной величины на графиках (оценка идёт из общей палитры).
@@ -401,10 +467,19 @@ void MainWindow::buildUi()
     plot_tabs_->addTab(stackPlots({plot_lat_, plot_lon_, plot_alt_}), tr("Координаты"));
     plot_tabs_->addTab(stackPlots({plot_heading_, plot_pitch_, plot_roll_}), tr("Углы"));
     plot_tabs_->addTab(stackPlots({plot_vn_, plot_ve_, plot_vh_}), tr("Скорости"));
-    plot_tabs_->addTab(plot_errors_, tr("Ошибки x"));
+    // Вектор ошибок x — стопка графиков по единицам измерения: на одной оси
+    // теперь метры, м/с, рад, м/с² и рад/с не смешиваются.
+    plot_tabs_->addTab(stackPlots({plot_err_pos_, plot_err_vel_, plot_err_att_,
+                                   plot_err_ba_, plot_err_bg_}),
+                       tr("Ошибки x"));
     plot_tabs_->addTab(plot_innovation_, tr("Инновации СНС"));
     plot_tabs_->addTab(plot_covariance_, tr("Ковариация P"));
     plot_tabs_->addTab(plot_consistency_, tr("Согласованность"));
+    // Смещения ИМУ (этап 6 плана): оценка фильтра, полоса ±2σ(P) и истина
+    // набора из params.json — по графику на компоненту.
+    plot_tabs_->addTab(stackPlots({plot_bias_ba_x_, plot_bias_ba_y_, plot_bias_ba_z_,
+                                   plot_bias_bg_x_, plot_bias_bg_y_, plot_bias_bg_z_}),
+                       tr("Смещения ИМУ"));
     right->addTab(plot_tabs_, tr("Графики"));
 
     data_.reset(new DataPanel);
@@ -571,11 +646,23 @@ void MainWindow::buildPlots()
     add_time_plot(plot_ve_, RunSeries::Ve);
     add_time_plot(plot_vh_, RunSeries::Vh);
 
-    plot_errors_ = new TimeSeriesPlot;
-    plot_errors_->setTitle(tr("Вектор ошибок x (кадры коррекции СНС)"));
-    plot_errors_->setAxisLabels(tr("Время, с"), tr("ошибка"));
-    plot_errors_->setMarginLeft(78);
-    plot_errors_->setLegendVisible(true);
+    // Вектор ошибок x — по графику на группу единиц измерения: координаты (м),
+    // скорости (м/с), углы (рад), смещения акселя (м/с²), смещения гироскопа
+    // (рад/с). Раньше все 15 компонент лежали на одной оси «ошибка».
+    const auto add_error_plot = [](TimeSeriesPlot *&plot, const QString &title,
+                                   const QString &unit) {
+        plot = new TimeSeriesPlot;
+        plot->setTitle(title);
+        plot->setAxisLabels(QObject::tr("Время, с"), unit);
+        plot->setMarginLeft(88);
+        plot->setVisibilityThreshold(1e-18);
+        plot->setLegendVisible(true);
+    };
+    add_error_plot(plot_err_pos_, tr("Вектор ошибок x: координаты"), tr("м"));
+    add_error_plot(plot_err_vel_, tr("Вектор ошибок x: скорости"), tr("м/с"));
+    add_error_plot(plot_err_att_, tr("Вектор ошибок x: углы"), tr("рад"));
+    add_error_plot(plot_err_ba_, tr("Вектор ошибок x: смещение акселя"), tr("м/с²"));
+    add_error_plot(plot_err_bg_, tr("Вектор ошибок x: смещение гироскопа"), tr("рад/с"));
 
     plot_innovation_ = new TimeSeriesPlot;
     plot_innovation_->setTitle(tr("Инновации измерений СНС"));
@@ -595,6 +682,23 @@ void MainWindow::buildPlots()
     plot_consistency_->setAxisLabels(tr("Время, с"), tr("статистика"));
     plot_consistency_->setMarginLeft(78);
     plot_consistency_->setLegendVisible(true);
+
+    // Смещения ИМУ: одна компонента на график — оценка фильтра, полоса ±2σ(P)
+    // и истина набора (params.json) в инженерных единицах (мг и °/ч) — тех же,
+    // что в отчёте по смещениям и в params.json.
+    const auto add_bias_plot = [](TimeSeriesPlot *&plot, int index) {
+        plot = new TimeSeriesPlot;
+        plot->setTitle(PdfReport::biasCaption(index));
+        plot->setAxisLabels(QObject::tr("Время, с"), PdfReport::biasUnit(index));
+        plot->setMarginLeft(88);
+        plot->setLegendVisible(true);
+    };
+    add_bias_plot(plot_bias_ba_x_, 0);
+    add_bias_plot(plot_bias_ba_y_, 1);
+    add_bias_plot(plot_bias_ba_z_, 2);
+    add_bias_plot(plot_bias_bg_x_, 3);
+    add_bias_plot(plot_bias_bg_y_, 4);
+    add_bias_plot(plot_bias_bg_z_, 5);
 
     // Холст отчёта: виджет вне вкладок, нужен только для отрисовки блоков
     // графиков в PDF. Родитель — окно, чтобы он жил и удалялся вместе с ним.
@@ -671,7 +775,9 @@ void MainWindow::onStart()
     nav_model_->clear();
     plot_trajectory_->clearTrajectory();
     plot_trajectory_->clearTruth();
-    plot_errors_->clearSyncMarkers();
+    for (TimeSeriesPlot *plot : {plot_err_pos_, plot_err_vel_, plot_err_att_, plot_err_ba_,
+                                 plot_err_bg_})
+        plot->clearSyncMarkers();
     state_->reset();
 
     // Параметры фильтра — из таблицы (правки применены к ядру).
@@ -997,6 +1103,12 @@ void MainWindow::onRefresh()
             row.p[i] = s.p_diag[i];
         }
 
+        // Оценки смещений ИМУ (СИ) — для вкладки «Смещения ИМУ»: фильтр держит
+        // их в NavState::ba/bg, а не в векторе ошибок x[9..14].
+        for (int i = 0; i < 3 && i < s.ba.size(); i++) row.ba[i] = s.ba[i];
+        for (int i = 0; i < 3 && i < s.bg.size(); i++) row.bg[i] = s.bg[i];
+        series_.has_bias = true;
+
         series_.rows.push_back(row);
     }
 
@@ -1032,46 +1144,56 @@ void MainWindow::refreshNavModel(bool force)
 void MainWindow::rebuildPlotSeries(int tab)
 {
     ensureTruthLoaded();
+    ensureBiasTruthLoaded();
     plots_dirty_ = false;
 
     switch (tab)
     {
-    case 0:
+    case TabTrajectory:
         // Траектория рисуется через updateTrajectory().
         return;
 
-    case 1:  // Координаты: широта, долгота, высота — каждой свой график
+    case TabCoordinates:  // Координаты: широта, долгота, высота
         if (series_.rows.empty()) return;
         plot_lat_->setSeries(quantitySeries(RunSeries::Lat));
         plot_lon_->setSeries(quantitySeries(RunSeries::Lon));
         plot_alt_->setSeries(quantitySeries(RunSeries::Alt));
         return;
 
-    case 2:  // Углы: курс, тангаж, крен
+    case TabAngles:  // Углы: курс, тангаж, крен
         if (series_.rows.empty()) return;
         plot_heading_->setSeries(quantitySeries(RunSeries::Heading));
         plot_pitch_->setSeries(quantitySeries(RunSeries::Pitch));
         plot_roll_->setSeries(quantitySeries(RunSeries::Roll));
         return;
 
-    case 3:  // Скорости: vn, ve, vh
+    case TabVelocities:  // Скорости: vn, ve, vh
         if (series_.rows.empty()) return;
         plot_vn_->setSeries(quantitySeries(RunSeries::Vn));
         plot_ve_->setSeries(quantitySeries(RunSeries::Ve));
         plot_vh_->setSeries(quantitySeries(RunSeries::Vh));
         return;
 
-    case 4:  // Вектор ошибок x (только кадры коррекции СНС)
+    case TabErrors:  // Вектор ошибок x (кадры коррекции) — по группе единиц
     {
-        const QVector<PlotSeries> out = errorSeries();
-        if (out.isEmpty()) return;
-        plot_errors_->setSyncMarkers(correctionTimes());
-        plot_errors_->setVisibilityThreshold(1e-18);
-        plot_errors_->setSeries(out);
+        if (series_.corrections.empty()) return;
+        TimeSeriesPlot *plots[ErrorGroupCount] = {plot_err_pos_, plot_err_vel_, plot_err_att_,
+                                                 plot_err_ba_, plot_err_bg_};
+        // Широта кадров нужна группе «координаты» (перевод рад → м): считается
+        // один раз на перерисовку, а не в каждой группе.
+        const QVector<double> ct = correctionTimes();
+        const QVector<double> lat = latAtCorrections(series_.rows, ct);
+        for (int g = 0; g < ErrorGroupCount; g++)
+        {
+            const QVector<PlotSeries> out = errorSeries(g, lat);
+            if (out.isEmpty()) continue;
+            plots[g]->setSyncMarkers(ct);
+            plots[g]->setSeries(out);
+        }
         return;
     }
 
-    case 5:  // Инновации измерений СНС
+    case TabInnovation:  // Инновации измерений СНС
     {
         const QVector<PlotSeries> out = innovationSeries();
         if (out.isEmpty()) return;
@@ -1081,7 +1203,7 @@ void MainWindow::rebuildPlotSeries(int tab)
         return;
     }
 
-    case 6:  // Диагонали ковариации P
+    case TabCovariance:  // Диагонали ковариации P
     {
         const QVector<PlotSeries> out = covarianceSeries();
         if (out.isEmpty()) return;
@@ -1089,13 +1211,27 @@ void MainWindow::rebuildPlotSeries(int tab)
         return;
     }
 
-    case 7:  // NIS / NEES на кадрах коррекции СНС
+    case TabConsistency:  // NIS / NEES на кадрах коррекции СНС
     {
         const QVector<PlotSeries> out = consistencySeries();
         if (out.isEmpty()) return;
         plot_consistency_->setSyncMarkers(correctionTimes());
         plot_consistency_->setVisibilityThreshold(1e-12);
         plot_consistency_->setSeries(out);
+        return;
+    }
+
+    case TabBiases:  // Оценки смещений ИМУ: оценка, ±2σ(P), истина
+    {
+        if (!series_.has_bias) return;
+        TimeSeriesPlot *plots[6] = {plot_bias_ba_x_, plot_bias_ba_y_, plot_bias_ba_z_,
+                                    plot_bias_bg_x_, plot_bias_bg_y_, plot_bias_bg_z_};
+        for (int i = 0; i < 6; i++)
+        {
+            const QVector<PlotSeries> out = biasSeries(i);
+            if (out.isEmpty()) continue;
+            plots[i]->setSeries(decimateForPlot(out));
+        }
         return;
     }
 
@@ -1116,6 +1252,20 @@ void MainWindow::ensureTruthLoaded()
     truth_dir_ = settings_.data_dir;
     truth_.clear();
     loadDatasetTruth(settings_.data_dir, &truth_);
+}
+
+// Истинные смещения ИМУ набора (params.json, раздел noise_si) для вкладки
+// «Смещения ИМУ» и блоков отчёта. Файла может не быть (реальные записи,
+// наборы без паспорта) — тогда истина просто не рисуется.
+void MainWindow::ensureBiasTruthLoaded()
+{
+    if (bias_truth_dir_ == settings_.data_dir) return;
+    bias_truth_dir_ = settings_.data_dir;
+    bias_truth_ = nav::BiasTruth();
+    if (settings_.data_dir.isEmpty()) return;
+
+    const QString path = QDir(settings_.data_dir).filePath(QStringLiteral("params.json"));
+    nav::loadBiasTruth(path.toStdString(), bias_truth_, nullptr);
 }
 
 QVector<double> MainWindow::correctionTimes() const
@@ -1158,22 +1308,50 @@ QVector<PlotSeries> MainWindow::quantitySeries(int column) const
     return out;
 }
 
-// Вектор ошибок x на кадрах коррекции СНС.
-QVector<PlotSeries> MainWindow::errorSeries() const
+// Вектор ошибок x на кадрах коррекции СНС — компоненты одной группы единиц
+// измерения (ErrorGroup). В группе «координаты» широта и долгота переводятся
+// в метры (север/восток) по широте кадра: иначе на оси смешивались бы рад и м.
+QVector<PlotSeries> MainWindow::errorSeries(int group, const QVector<double> &lat_deg) const
 {
     QVector<PlotSeries> out;
     const int m = static_cast<int>(series_.corrections.size());
     if (m == 0) return out;
+    if (group < 0 || group >= ErrorGroupCount) return out;
 
     const QVector<double> ct = correctionTimes();
-    for (int i = 0; i < ins::KF_STATE; i++)
+    const int first = errorGroupFirst(group);
+    for (int j = 0; j < 3; j++)
     {
+        const int i = first + j;
         QVector<double> v(m);
-        for (int k = 0; k < m; k++) v[k] = series_.corrections[k].x[i];
-        out.push_back(makeSeries(errorLabel(i), ct, v, i, true));
+        for (int k = 0; k < m; k++)
+        {
+            const double lat = (k < lat_deg.size()) ? lat_deg[k] : 0.0;
+            v[k] = errorGroupValue(group, j, series_.corrections[k].x[i], lat);
+        }
+        out.push_back(makeSeries(errorGroupLabel(group, j), ct, v, j, true));
     }
-    appendCompareSeries(out, 4);
+    appendCompareSeries(out, TabErrors, group);
     return out;
+}
+
+int MainWindow::biasSeriesCount()
+{
+    ensureBiasTruthLoaded();
+    int total = 0;
+    for (int i = 0; i < 6; i++) total += biasSeries(i).size();
+    return total;
+}
+
+// Смещения ИМУ на каждом такте: оценка фильтра, полоса ±2σ(P) и истина набора
+// (та же сборка ряда, что уходит блоками в PDF-отчёт).
+QVector<PlotSeries> MainWindow::biasSeries(int index) const
+{
+    // У прогонов, открытых из истории SQLite, оценок смещений нет: в таблице
+    // прогонов хранятся только результат, диагонали P и NIS/NEES. Вкладка и
+    // блоки отчёта для таких прогонов остаются пустыми (has_bias).
+    if (!series_.has_bias) return QVector<PlotSeries>();
+    return PdfReport::biasSeries(series_, bias_truth_, index);
 }
 
 // Инновации измерений СНС (нулевые компоненты не рисуем).
@@ -1198,7 +1376,7 @@ QVector<PlotSeries> MainWindow::innovationSeries() const
         if (!nonzero) continue;
         out.push_back(makeSeries(innovationLabel(i), ct, v, color++, true));
     }
-    appendCompareSeries(out, 5);
+    appendCompareSeries(out, TabInnovation);
     return out;
 }
 
@@ -1244,7 +1422,7 @@ QVector<PlotSeries> MainWindow::consistencySeries() const
     out.push_back(makeSeries(tr("ожидание (%1)").arg(dof), ct, expect, 6, true));
     out.push_back(makeSeries(tr("NIS"), ct, nis, 0, true));
     out.push_back(makeSeries(tr("NEES"), ct, nees, 1, true));
-    appendCompareSeries(out, 7);
+    appendCompareSeries(out, TabConsistency);
     return out;
 }
 
@@ -1317,6 +1495,20 @@ QVector<PdfReport::PlotBlock> MainWindow::buildReportBlocks() const
     add_diagnostic(tr("Согласованность фильтра (NIS / NEES)"), tr("статистика"),
                    consistencySeries(), correctionTimes());
 
+    // Смещения ИМУ (этап 6 плана): оценка фильтра, полоса ±2σ(P) и истина набора
+    // из params.json — по блоку на компоненту, в инженерных единицах (мг, °/ч).
+    for (int i = 0; i < 6; i++)
+    {
+        const QVector<PlotSeries> s = biasSeries(i);
+        if (s.isEmpty()) continue;
+        PdfReport::PlotBlock b;
+        b.caption = PdfReport::biasCaption(i);
+        b.series = decimateForReport(s);
+        b.x_label = tr("Время, с");
+        b.y_label = PdfReport::biasUnit(i);
+        blocks.push_back(b);
+    }
+
     return blocks;
 }
 
@@ -1360,7 +1552,7 @@ void MainWindow::appendCompareField(QVector<PlotSeries> &out, int column) const
         out.push_back(makeSeries(tr("Δ %1").arg(label), at, diff, 6, false, true));
 }
 
-void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab) const
+void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, PlotTab tab, int group) const
 {
     if (!hasComparison()) return;
 
@@ -1368,7 +1560,7 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab) const
     const QString suffix = tr(" [прогон %1]").arg(compare_run_id_);
 
     // Диагонали P — покомпонентно, по временам второго прогона.
-    if (tab == 6)
+    if (tab == TabCovariance)
     {
         for (int i = 0; i < ins::KF_STATE; i++)
         {
@@ -1383,20 +1575,50 @@ void MainWindow::appendCompareSeries(QVector<PlotSeries> &out, int tab) const
     for (int i = 0; i < ct.size(); i++) ct[i] = B.corrections[i].time;
     if (ct.isEmpty()) return;
 
-    // Компоненты вектора ошибок x (вкладки 4 и 5).
-    if (tab == 4 || tab == 5)
+    // Компоненты вектора ошибок x той же группы, что и на экране: в группе
+    // «координаты» — те же метры (север/восток), что у основного прогона.
+    if (tab == TabErrors)
     {
-        for (int i = 0; i < ins::KF_STATE; i++)
+        QVector<double> b_lat;
+        if (group == ErrPosition) b_lat = latAtCorrections(B.rows, ct);
+        const int first = errorGroupFirst(group);
+        for (int j = 0; j < 3; j++)
         {
+            const int i = first + j;
             QVector<double> bv(ct.size());
-            for (int k = 0; k < bv.size(); k++) bv[k] = B.corrections[k].x[i];
-            out.push_back(makeSeries(errorLabel(i) + suffix, ct, bv, i, true, true));
+            for (int k = 0; k < bv.size(); k++)
+            {
+                const double lat = (k < b_lat.size()) ? b_lat[k] : 0.0;
+                bv[k] = errorGroupValue(group, j, B.corrections[k].x[i], lat);
+            }
+            out.push_back(makeSeries(errorGroupLabel(group, j) + suffix, ct, bv, j, true, true));
         }
         return;
     }
 
-    // Согласованность NIS/NEES (вкладка 7) — из своего разреженного ряда.
-    if (tab == 7 && !B.consistency.empty())
+    // Инновации СНС второго прогона (нулевые компоненты, как и на экране,
+    // пропускаются: без angle.dat курс не измеряется).
+    if (tab == TabInnovation)
+    {
+        int color = 0;
+        for (int i = 0; i < ins::KF_MEAS; i++)
+        {
+            QVector<double> bv(ct.size());
+            bool nonzero = false;
+            for (int k = 0; k < bv.size(); k++)
+            {
+                bv[k] = B.corrections[k].innovation[i];
+                if (std::abs(bv[k]) > 0.0) nonzero = true;
+            }
+            if (!nonzero) continue;
+            out.push_back(
+                makeSeries(innovationLabel(i) + suffix, ct, bv, color++, true, true));
+        }
+        return;
+    }
+
+    // Согласованность NIS/NEES второго прогона — из своего разреженного ряда.
+    if (tab == TabConsistency && !B.consistency.empty())
     {
         QVector<double> bt(static_cast<int>(B.consistency.size()));
         QVector<double> bn(bt.size());
@@ -1879,7 +2101,7 @@ bool MainWindow::exportReportTo(const QString &path, QString *error)
     // сами ряды блоков, а не то, что открыто на экране (активная вкладка
     // «Траектория» рисовала бы вместо временных рядов траекторию).
     PlotView *canvas = report_canvas_;
-    if (canvas == nullptr) canvas = plot_errors_;
+    if (canvas == nullptr) canvas = plot_err_pos_;
 
     return PdfReport::build(canvas, series_, buildReportBlocks(), options, path, error);
 }

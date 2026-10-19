@@ -36,6 +36,45 @@ PlotView *g_plot = nullptr;
 // смешивается с зелёным цветом истины в графиках величин.
 const QColor kErrorColor(200, 40, 40);
 
+// Цвета графика смещений ИМУ: оценка — первый цвет палитры рядов (тот же
+// синий, что у графиков величин), истина — зелёный пунктир, полоса ±2σ(P) —
+// серый пунктир.
+const QColor kBiasEstimateColor(31, 119, 180);
+const QColor kBiasTruthColor(0, 150, 60);
+const QColor kBiasSigmaColor(127, 127, 127);
+
+// Инженерные единицы смещений — те же, что в params.json и в отчёте по
+// смещениям (bias_report.cpp): ba — мг (1 мг = 9.80665e-3 м/с²), bg — °/ч.
+// В СИ смещения порядка 1e-5..1e-2 и глазом не читаются.
+constexpr double kMs2ToMilliG = 1.0 / 9.80665e-3;
+constexpr double kRadSToDegHour = RAD_TO_DEG * 3600.0;
+
+// Компонента смещения ИМУ: подпись, название, ось, датчик, индекс диагонали P
+// (ba — 9..11, bg — 12..14) и перевод СИ → инженерные единицы.
+struct BiasSpec
+{
+    const char *label;    // «ba_X»
+    const char *caption;  // «Смещение акселерометра: ось X»
+    int axis;             // 0..2
+    bool accel;           // true — ba, false — bg
+    int p_index;          // индекс диагонали ковариации
+    double scale;         // СИ → мг либо °/ч
+};
+
+const BiasSpec *biasSpec(int index)
+{
+    static const BiasSpec specs[6] = {
+        {"ba_X", "Смещение акселерометра: ось X", 0, true, 9, kMs2ToMilliG},
+        {"ba_Y", "Смещение акселерометра: ось Y", 1, true, 10, kMs2ToMilliG},
+        {"ba_Z", "Смещение акселерометра: ось Z", 2, true, 11, kMs2ToMilliG},
+        {"bg_X", "Смещение гироскопа: ось X", 0, false, 12, kRadSToDegHour},
+        {"bg_Y", "Смещение гироскопа: ось Y", 1, false, 13, kRadSToDegHour},
+        {"bg_Z", "Смещение гироскопа: ось Z", 2, false, 14, kRadSToDegHour}};
+    if (index < 0 || index >= 6) return nullptr;
+    return &specs[index];
+}
+
+
 // Названия компонент вектора ошибок — те же, что в легенде графика.
 const char *componentName(int i)
 {
@@ -632,6 +671,91 @@ QVector<PlotSeries> PdfReport::errorSeries(const RunSeries &series,
 QString PdfReport::errorUnit(int column)
 {
     return QString::fromUtf8(errorUnitName(column));
+}
+
+QVector<PlotSeries> PdfReport::biasSeries(const RunSeries &series,
+                                          const nav::BiasTruth &truth, int index)
+{
+    QVector<PlotSeries> out;
+    const BiasSpec *spec = biasSpec(index);
+    if (spec == nullptr || series.rows.empty()) return out;
+
+    // Оценка смещения и полоса ±2σ(P) на каждом такте: σ берётся из диагонали
+    // ковариации того же такта, поэтому полоса сжимается по мере сходимости
+    // фильтра. Прореживание делает вызывающий (для виджета — огибающая, для
+    // PDF — decimateForReport).
+    PlotSeries est;
+    est.name = QObject::tr("оценка");
+    est.color = kBiasEstimateColor;
+
+    PlotSeries upper;
+    upper.name = QObject::tr("+2σ(P)");
+    upper.color = kBiasSigmaColor;
+    upper.dashed = true;
+    upper.width = 1.2;
+
+    PlotSeries lower = upper;
+    lower.name = QObject::tr("−2σ(P)");
+
+    const int n = static_cast<int>(series.rows.size());
+    est.points.reserve(n);
+    upper.points.reserve(n);
+    lower.points.reserve(n);
+    for (const RunSeries::Row &r : series.rows)
+    {
+        const double value =
+            (spec->accel ? r.ba[spec->axis] : r.bg[spec->axis]) * spec->scale;
+        const double sigma = std::sqrt(std::max(0.0, r.p[spec->p_index])) * spec->scale;
+        est.points.push_back(QPointF(r.time, value));
+        upper.points.push_back(QPointF(r.time, value + 2.0 * sigma));
+        lower.points.push_back(QPointF(r.time, value - 2.0 * sigma));
+    }
+    out.push_back(est);
+    out.push_back(upper);
+    out.push_back(lower);
+
+    // Истина набора из params.json: горизонтальная линия на всём ходе.
+    // Ненаблюдаемую компоненту помечаем прямо в легенде (её оценка определена
+    // только в сумме с наклоном либо с курсом).
+    if (truth.valid)
+    {
+        const double t0 = series.rows.front().time;
+        const double t1 = series.rows.back().time;
+        const double value = (spec->accel ? truth.ba[spec->axis] : truth.bg[spec->axis]) *
+                             spec->scale;
+
+        PlotSeries ref;
+        ref.name = truth.observable[index] ? QObject::tr("истина")
+                                           : QObject::tr("истина (ненаблюдаема)");
+        ref.color = kBiasTruthColor;
+        ref.dashed = true;
+        ref.points.push_back(QPointF(t0, value));
+        ref.points.push_back(QPointF(t1, value));
+        out.push_back(ref);
+    }
+
+    return out;
+}
+
+QString PdfReport::biasUnit(int index)
+{
+    const BiasSpec *spec = biasSpec(index);
+    if (spec == nullptr) return QString();
+    return QString::fromUtf8(spec->accel ? "мг" : "°/ч");
+}
+
+QString PdfReport::biasLabel(int index)
+{
+    const BiasSpec *spec = biasSpec(index);
+    return spec == nullptr ? QString() : QString::fromLatin1(spec->label);
+}
+
+QString PdfReport::biasCaption(int index)
+{
+    const BiasSpec *spec = biasSpec(index);
+    if (spec == nullptr) return QString();
+    return QObject::tr("%1 (%2)")
+        .arg(QString::fromUtf8(spec->caption), biasUnit(index));
 }
 
 QString PdfReport::summarize(const RunSeries &series)

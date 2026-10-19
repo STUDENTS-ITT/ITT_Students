@@ -13,6 +13,7 @@
 
 #include "core_bridge/run_store.h"
 #include "core_bridge/telemetry_buffer.h"
+#include "core/navigation/bias_report.h"
 #include "export/pdf_report.h"
 #include "settings/app_settings.h"
 
@@ -63,6 +64,11 @@ public:
 
     // Сборка сводного PDF-отчёта в файл без диалога (используется self-test).
     bool exportReportTo(const QString &path, QString *error = nullptr);
+
+    // Самопроверка (--self-test): сколько рядов у графиков смещений ИМУ
+    // (оценка, ±2σ и истина по каждой из 6 компонент). 0 — оценок смещений у
+    // текущего прогона нет (например, прогон открыт из истории SQLite).
+    int biasSeriesCount();
 
     // Экспорт статических матриц фильтра (Q/R/P0/H) в каталог без диалога:
     // три файла matrices_<датасет>.{csv,md,json}. Используется режимом
@@ -144,6 +150,34 @@ Q_SIGNALS:
     void runFinished(bool ok, const QString &message);
 
 private:
+    // Вкладки графиков: заданы именованно, потому что их номера используются
+    // и в rebuildPlotSeries(), и в appendCompareSeries(), а число вкладок
+    // менялось (этап 6 плана добавил «Смещения ИМУ»).
+    enum PlotTab
+    {
+        TabTrajectory = 0,
+        TabCoordinates,
+        TabAngles,
+        TabVelocities,
+        TabErrors,
+        TabInnovation,
+        TabCovariance,
+        TabConsistency,
+        TabBiases
+    };
+
+    // Группа компонент вектора ошибок: у каждой группы свои единицы, поэтому
+    // каждая выводится отдельным графиком (одна ось — одна единица измерения).
+    enum ErrorGroup
+    {
+        ErrPosition = 0,  // север/восток/высота, м
+        ErrVelocity,      // Vn/Vh/Ve, м/с
+        ErrAttitude,      // курс/тангаж/крен, рад
+        ErrAccelBias,     // ba, м/с²
+        ErrGyroBias,      // bg, рад/с
+        ErrorGroupCount
+    };
+
     void buildUi();
     void buildActions();
     void buildPlots();
@@ -155,13 +189,21 @@ private:
     // Наземная истина набора: читает <data_dir>/truth.txt при смене каталога.
     void ensureTruthLoaded();
 
+    // Истинные смещения ИМУ набора: читает <data_dir>/params.json при смене
+    // каталога (нужны вкладке «Смещения ИМУ» и блокам отчёта).
+    void ensureBiasTruthLoaded();
+
     // Ряды временных графиков (оценка + истина, плюс второй прогон). Общие для
     // вкладок и сводного отчёта, чтобы экран и PDF строились одинаково.
     QVector<PlotSeries> quantitySeries(int column) const;  // Lat..Ve
-    QVector<PlotSeries> errorSeries() const;               // x[0..14]
+    // Компоненты вектора ошибок одной группы (ErrorGroup). lat_deg — широта
+    // кадров коррекции: в группе «координаты» широта/долгота переводятся в
+    // метры (север/восток), поэтому ось не смешивает радианы и метры.
+    QVector<PlotSeries> errorSeries(int group, const QVector<double> &lat_deg) const;
     QVector<PlotSeries> innovationSeries() const;          // z СНС
     QVector<PlotSeries> covarianceSeries() const;          // diag P
     QVector<PlotSeries> consistencySeries() const;         // NIS/NEES
+    QVector<PlotSeries> biasSeries(int index) const;       // ba/bg ИМУ (0..5)
     QVector<double> correctionTimes() const;               // моменты коррекции, с
 
     // Добавление ряда второго прогона (пунктир) для одной величины.
@@ -169,7 +211,8 @@ private:
 
     // Добавление рядов второго прогона (пунктир) и, если включено, разности
     // «текущий минус второй» на том же графике (диагностические вкладки).
-    void appendCompareSeries(QVector<PlotSeries> &out, int tab) const;
+    // group используется только для вкладки «Ошибки x».
+    void appendCompareSeries(QVector<PlotSeries> &out, PlotTab tab, int group = -1) const;
 
     // Текущий график (вкладка) для экспорта.
     PlotView *currentPlot() const;
@@ -223,6 +266,11 @@ private:
     QVector<TruthSample> truth_;
     QString truth_dir_;
 
+    // Истинные смещения ИМУ набора (params.json): кэш для вкладки «Смещения
+    // ИМУ» и блоков отчёта. Перечитывается при смене каталога (bias_truth_dir_).
+    nav::BiasTruth bias_truth_;
+    QString bias_truth_dir_;
+
     bool running_ = false;
     bool stopping_ = false;
     bool autostart_ = false;
@@ -251,10 +299,24 @@ private:
     TimeSeriesPlot *plot_vn_ = nullptr;
     TimeSeriesPlot *plot_ve_ = nullptr;
     TimeSeriesPlot *plot_vh_ = nullptr;
-    TimeSeriesPlot *plot_errors_ = nullptr;
+    // Вкладка «Ошибки x» — пять графиков по единицам измерения: координаты (м),
+    // скорости (м/с), углы (рад), смещения акселя (м/с²) и гироскопа (рад/с).
+    // Одна ось — одна единица (раньше все 15 компонент лежали на одной оси).
+    TimeSeriesPlot *plot_err_pos_ = nullptr;
+    TimeSeriesPlot *plot_err_vel_ = nullptr;
+    TimeSeriesPlot *plot_err_att_ = nullptr;
+    TimeSeriesPlot *plot_err_ba_ = nullptr;
+    TimeSeriesPlot *plot_err_bg_ = nullptr;
     TimeSeriesPlot *plot_innovation_ = nullptr;
     TimeSeriesPlot *plot_covariance_ = nullptr;
     TimeSeriesPlot *plot_consistency_ = nullptr;
+    // Вкладка «Смещения ИМУ»: оценка фильтра, ±2σ(P) и истина params.json.
+    TimeSeriesPlot *plot_bias_ba_x_ = nullptr;
+    TimeSeriesPlot *plot_bias_ba_y_ = nullptr;
+    TimeSeriesPlot *plot_bias_ba_z_ = nullptr;
+    TimeSeriesPlot *plot_bias_bg_x_ = nullptr;
+    TimeSeriesPlot *plot_bias_bg_y_ = nullptr;
+    TimeSeriesPlot *plot_bias_bg_z_ = nullptr;
     // Отдельный «холст» для сборки графиков в PDF-отчёте: не привязан к
     // вкладкам, поэтому в отчёт попадают сами ряды блоков, а не активная вкладка.
     TimeSeriesPlot *report_canvas_ = nullptr;
