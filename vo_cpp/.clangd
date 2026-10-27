@@ -1,0 +1,16 @@
+# clangd (Windows) does not search MinGW libstdc++ unless the gcc driver is
+# queried. These paths match `c++ -E -v -x c++` for MSYS2 UCRT64 GCC 16.2.
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - --target=x86_64-w64-mingw32
+    - -isystem
+    - C:/msys64/ucrt64/include/c++/16.2.0
+    - -isystem
+    - C:/msys64/ucrt64/include/c++/16.2.0/x86_64-w64-mingw32
+    - -isystem
+    - C:/msys64/ucrt64/include/c++/16.2.0/backward
+    - -isystem
+    - C:/msys64/ucrt64/lib/gcc/x86_64-w64-mingw32/16.2.0/include-fixed
+    - -isystem
+    - C:/msys64/ucrt64/include

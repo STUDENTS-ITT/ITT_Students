@@ -1,0 +1,11 @@
+frames_source=0..799 (count=800)
+end_frame_rule=first_80s_at_10fps -> end_idx=799
+output=D:\Cursor_projects\VO\report\tracking_takeoff.mp4
+resolution=960x803
+video_fps=10.0
+video_duration_s=80.00
+ms_per_frame_mean=50.17
+ms_per_frame_median=42.00
+total_wall_s=42.48
+opencv=5.0.0
+note=ORB descriptors at FAST keypoints (FREAK/xfeatures2d unavailable in this OpenCV build)

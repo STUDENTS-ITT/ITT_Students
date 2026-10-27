@@ -1,0 +1,39 @@
+# Скомпилированные файлы и исполняемые файлы
+*.o
+*.exe
+*.out
+bin/
+
+# Обработанные данные и логи
+data/processed/
+data/raw/
+*.dat
+
+# Системные файлы и файлы IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# CMake и файлы сборки
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CMakeScripts/
+Makefile
+*.cmake
+build/
+out/
+
+# Выходные файлы прогонов (result/reference/errors, скриншоты)
+tools/*.txt
+tools/*.png
+
+# Рабочие отчёты и заметки
+AGENTS.md
+eskf_brief_report.md
+docs/filter_diff_vs_head.md
+docs/p1_p3_fixes_report.md
+docs/camera_state_extension.md
+docs/navigation_enhancements.md

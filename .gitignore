@@ -1,27 +1,45 @@
-# Скомпилированные файлы и исполняемые файлы
-*.o
+# сборка
+build/
+**/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
 *.exe
-*.out
-bin/
+*.obj
+*.o
+*.a
+*.dll
+*.pdb
 
-# Обработанные данные и логи
-data/processed/
-data/raw/
-*.dat
+# Python
+**/__pycache__/
+*.pyc
 
-# Системные файлы и файлы IDE
-.DS_Store
+# IDE и локальные ключи
+.vs/
 .vscode/
 .idea/
-*.swp
-*.swo
+.cache/
+.cursor/
+opencode.json
 
-# CMake и файлы сборки
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-CMakeScripts/
-Makefile
-*.cmake
-build/
-out/
+# сырые кадры и лидар в репозиторий не входят (лежат рядом с кодом локально)
+camera/images/
+lidar/
+
+# промежуточные файлы фильтра, их собирает run_eval.ps1
+add-kalman-report/data/vo_hk03/*.dat
+add-kalman-report/data/vo_hk03/StartupNav.ini
+add-kalman-report/data/processed/
+add-kalman-report/tools/result.txt
+add-kalman-report/tools/reference.txt
+add-kalman-report/tools/errors.txt
+results_fusion/result.txt
+
+# отладочные картинки совпадений
+results_HKairport03/**/matches/
+
+# видео
+*.mp4
+*.avi

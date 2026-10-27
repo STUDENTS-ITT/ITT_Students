@@ -1,0 +1,55 @@
+# --- сборка ---
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+_deps/
+*.ninja
+.ninja_*
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.pdb
+*.ilk
+
+# --- IDE ---
+.vs/
+.vscode/
+.idea/
+.cache/
+*.user
+*.suo
+
+# --- результаты прогонов и данные ---
+results/
+results_*/
+trajectory_plots/
+*.log
+
+# датасеты и тяжёлые файлы не хранятся в репозитории
+*.bag
+*.mp4
+*.avi
+*.mov
+*.mkv
+camera/
+HKairport03/camera/
+HKairport03/gps/
+HKairport03/other/
+HKairport03/imu/
+
+# файлы, которые run_all_hkairport03 генерирует сам
+HKairport03/calibration/camera.json
+HKairport03/altitude_per_frame.csv
+HKairport03/gps_reference.csv

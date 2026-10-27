@@ -1,0 +1,175 @@
+{
+  "bag_file": "HKairport03.bag",
+  "bag_path": "/Users/admin/Documents/Program/Video_analys/Data/HKairport03.bag",
+  "format": "ROS1 bag (ROSBAG V2.0)",
+  "dataset": "MARS-LVIG",
+  "duration_s": 365.68832662,
+  "start_time_ns": 1671607365001495985,
+  "end_time_ns": 1671607730689822605,
+  "start_time_utc": "2022-12-21T07:22:45.001495985Z",
+  "end_time_utc": "2022-12-21T07:28:50.689822605Z",
+  "message_count": 585583,
+  "topics": [
+    {
+      "topic": "/dji_osdk_ros/acceleration_ground_fused",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 36570
+    },
+    {
+      "topic": "/dji_osdk_ros/angular_velocity_fused",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 36570
+    },
+    {
+      "topic": "/dji_osdk_ros/attitude",
+      "type": "geometry_msgs/msg/QuaternionStamped",
+      "count": 36570
+    },
+    {
+      "topic": "/dji_osdk_ros/battery_state",
+      "type": "sensor_msgs/msg/BatteryState",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/display_mode",
+      "type": "std_msgs/msg/UInt8",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/flight_anomaly",
+      "type": "dji_osdk_ros/msg/FlightAnomaly",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/flight_status",
+      "type": "std_msgs/msg/UInt8",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/gimbal_angle",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/gps_health",
+      "type": "std_msgs/msg/UInt8",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/gps_position",
+      "type": "sensor_msgs/msg/NavSatFix",
+      "count": 18286
+    },
+    {
+      "topic": "/dji_osdk_ros/gps_velocity",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/gps_velocity_cov",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/height_above_takeoff",
+      "type": "std_msgs/msg/Float32",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/imu",
+      "type": "sensor_msgs/msg/Imu",
+      "count": 146280
+    },
+    {
+      "topic": "/dji_osdk_ros/local_position",
+      "type": "geometry_msgs/msg/PointStamped",
+      "count": 18286
+    },
+    {
+      "topic": "/dji_osdk_ros/rc",
+      "type": "sensor_msgs/msg/Joy",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/rc_connection_status",
+      "type": "std_msgs/msg/UInt8",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_connection_status",
+      "type": "std_msgs/msg/UInt8",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_info_position",
+      "type": "std_msgs/msg/UInt8",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_info_yaw",
+      "type": "std_msgs/msg/UInt8",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_position",
+      "type": "sensor_msgs/msg/NavSatFix",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_velocity",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/rtk_yaw",
+      "type": "std_msgs/msg/Int16",
+      "count": 1828
+    },
+    {
+      "topic": "/dji_osdk_ros/time_sync_fc_time_utc",
+      "type": "dji_osdk_ros/msg/FCTimeInUTC",
+      "count": 366
+    },
+    {
+      "topic": "/dji_osdk_ros/time_sync_gps_utc",
+      "type": "dji_osdk_ros/msg/GPSUTC",
+      "count": 366
+    },
+    {
+      "topic": "/dji_osdk_ros/time_sync_nmea_msg",
+      "type": "nmea_msgs/msg/Sentence",
+      "count": 9142
+    },
+    {
+      "topic": "/dji_osdk_ros/time_sync_pps_source",
+      "type": "std_msgs/msg/String",
+      "count": 366
+    },
+    {
+      "topic": "/dji_osdk_ros/velocity",
+      "type": "geometry_msgs/msg/Vector3Stamped",
+      "count": 18285
+    },
+    {
+      "topic": "/dji_osdk_ros/vo_position",
+      "type": "dji_osdk_ros/msg/VOPosition",
+      "count": 18285
+    },
+    {
+      "topic": "/left_camera/image/compressed",
+      "type": "sensor_msgs/msg/CompressedImage",
+      "count": 3657
+    },
+    {
+      "topic": "/livox/imu",
+      "type": "sensor_msgs/msg/Imu",
+      "count": 76165
+    },
+    {
+      "topic": "/livox/lidar",
+      "type": "livox_ros_driver/msg/CustomMsg",
+      "count": 3657
+    }
+  ],
+  "note": "Значения измерений сохранены без преобразования. Изображения — исходные JPEG-байты из CompressedImage. Точки Livox — исходная упаковка CustomPoint (19 байт)."
+}
