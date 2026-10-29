@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "NoQT: averaging window -> ESKF15 + accel update + SNS guard",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "input", "label": "Input" },
+    { "id": "align", "label": "Align" },
+    { "id": "init", "label": "Init" },
+    { "id": "loop", "label": "Loop" },
+    { "id": "kf", "label": "KF" },
+    { "id": "out", "label": "Out" }
+  ],
+  "nodes": [
+    { "id": "args", "lane": "input", "col": 0, "type": "frontend", "label": "Args" },
+    { "id": "files", "lane": "input", "col": 1, "type": "external", "label": "Files" },
+    { "id": "startup", "lane": "input", "col": 2, "type": "backend", "label": "StartupNav" },
+    { "id": "collect", "lane": "align", "col": 0, "type": "backend", "label": "Collect" },
+    { "id": "finish", "lane": "align", "col": 1, "type": "backend", "label": "Finish" },
+    { "id": "gate", "lane": "align", "col": 2, "type": "security", "label": "RestGate" },
+    { "id": "x0p0", "lane": "init", "col": 0, "type": "backend", "label": "x0/P0" },
+    { "id": "logs", "lane": "init", "col": 1, "type": "database", "label": "Logs" },
+    { "id": "cycle", "lane": "loop", "col": 0, "type": "backend", "label": "Cycle" },
+    { "id": "imu", "lane": "loop", "col": 1, "type": "external", "label": "IMU" },
+    { "id": "sync", "lane": "loop", "col": 2, "type": "backend", "label": "SyncSNS" },
+    { "id": "step", "lane": "loop", "col": 3, "type": "backend", "label": "Step" },
+    { "id": "integ", "lane": "kf", "col": 0, "type": "backend", "label": "Integrate" },
+    { "id": "pred", "lane": "kf", "col": 1, "type": "backend", "label": "Predict" },
+    { "id": "accel", "lane": "kf", "col": 2, "type": "backend", "label": "AccelUpd" },
+    { "id": "tilt", "lane": "kf", "col": 3, "type": "backend", "label": "TiltCorr" },
+    { "id": "guard", "lane": "kf", "col": 4, "type": "security", "label": "SnsGuard" },
+    { "id": "corr", "lane": "kf", "col": 5, "type": "backend", "label": "GnssCorr" },
+    { "id": "apply", "lane": "out", "col": 0, "type": "backend", "label": "Apply" },
+    { "id": "res", "lane": "out", "col": 1, "type": "database", "label": "Result" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "args", "to": "files" },
+    { "id": "e2", "from": "files", "to": "startup" },
+    { "id": "e3", "from": "startup", "to": "collect" },
+    { "id": "e4", "from": "collect", "to": "finish" },
+    { "id": "e5", "from": "finish", "to": "gate" },
+    { "id": "e6", "from": "gate", "to": "x0p0" },
+    { "id": "e7", "from": "x0p0", "to": "logs" },
+    { "id": "e8", "from": "logs", "to": "cycle" },
+    { "id": "e9", "from": "cycle", "to": "imu" },
+    { "id": "e10", "from": "imu", "to": "sync" },
+    { "id": "e11", "from": "sync", "to": "step" },
+    { "id": "e12", "from": "step", "to": "integ" },
+    { "id": "e13", "from": "integ", "to": "pred" },
+    { "id": "e14", "from": "pred", "to": "accel" },
+    { "id": "e15", "from": "accel", "to": "tilt" },
+    { "id": "e16", "from": "tilt", "to": "guard" },
+    { "id": "e17", "from": "guard", "to": "corr" },
+    { "id": "e18", "from": "corr", "to": "apply" },
+    { "id": "e19", "from": "apply", "to": "res" }
+  ]
+}

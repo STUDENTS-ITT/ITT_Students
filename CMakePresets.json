@@ -1,0 +1,43 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "mingw",
+      "displayName": "MinGW Makefiles (тот же, что и в build/)",
+      "description": "Совпадает с уже настроенным каталогом build: генератор MinGW Makefiles, компилятор MinGW-w64 GCC 16.1",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "C:/Users/anton/.mingw64/mingw64/bin/g++.exe",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "ninja",
+      "displayName": "Ninja (MinGW-w64 GCC), отдельный каталог build/ninja",
+      "description": "Быстрая сборка, не конфликтует с кэшем каталога build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ninja",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "C:/Users/anton/.mingw64/mingw64/bin/g++.exe",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mingw",
+      "configurePreset": "mingw"
+    },
+    {
+      "name": "ninja",
+      "configurePreset": "ninja"
+    }
+  ]
+}
