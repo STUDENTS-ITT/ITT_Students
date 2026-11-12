@@ -41,7 +41,7 @@ private:
 };
 
 // Чтение gps.dat + angle.dat: синхронно построчно, формирует SnsSample.
-// Координаты переводятся в радианы.
+// Координаты переводятся в радианы. angle_path может быть пустым/отсутствовать.
 class SnsReader
 {
 public:
@@ -54,6 +54,7 @@ private:
     std::ifstream angle_;
     std::string gps_line_;
     std::string angle_line_;
+    bool has_angle_ = false;
 };
 
 } // namespace data_io

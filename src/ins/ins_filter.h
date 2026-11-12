@@ -1,16 +1,16 @@
-// ins_filter.h — Угловатый фильтр Калмана 15-го порядка.
+// ins_filter.h - модели прогноза и коррекции фильтра Калмана 15-го порядка.
 //
-// Вектор состояний (15 компонент):
-//   x[0..2]   — ошибки координат (δφ, δλ, δh)
-//   x[3..5]   — ошибки скорости (δVn, δVh, δVe)
-//   x[6..8]   — ошибки углов ориентации (δψ, δθ, δφ)
-//   x[9..11]  — смещения акселерометра (δba)
-//   x[12..14] — смещения гироскопа (δbg)
+// Вектор состояния (15 компонент):
+//   x[0..2]   - ошибки координат (долгота, широта, h)
+//   x[3..5]   - ошибки скорости (Vn, Vh, Ve)
+//   x[6..8]   - ошибки углов ориентации (курс, тангаж, крен)
+//   x[9..11]  - смещения акселерометров (ba)
+//   x[12..14] - смещения гироскопов (bg)
 //
 // Вектор измерений (9 компонент):
-//   z[0..2] — разность координат (БИНС − СНС)
-//   z[3..5] — разность скоростей (БИНС − СНС)
-//   z[6..8] — разность углов ориентации (БИНС − СНС)
+//   z[0..2] - измеренные координаты (относительно модели)
+//   z[3..5] - измеренные скорости (относительно модели)
+//   z[6..8] - измеренные углы ориентации (относительно модели)
 
 #pragma once
 
@@ -25,19 +25,49 @@
 namespace ins
 {
 
-// Размерность вектора состояний и вектора измерений.
+// Размерности вектора состояния и измерений.
 constexpr int KF_STATE = 15;
 constexpr int KF_MEAS = 9;
 
-// Матрица шума процесса Q (диагональная, по моделям дрейфа).
-// σ_g, σ_a — шумы гироскопа и акселерометра;
-// σ_bg, σ_ba — дрейфы смещений гироскопа и акселерометра.
+// Конфигурация фильтра Калмана и выставки/инициализации.
+// Содержит шумы Q/R, приоры для P0/fallback и параметры защиты СНС.
+struct KalmanConfig
+{
+    // Шумы процесса Q (используются Qj_matrix и как приоры, где применимо).
+    double sig_g = 3.394e-4;   // шум гироскопов, рад/с/√Гц
+    double sig_a = 3.05e-3;    // шум акселерометров, м/с^2/√Гц
+    double sig_bg = 1.16e-5;   // шум дрейфа смещений гироскопов, рад/с/√Гц
+    double sig_ba = 2e-5;      // шум дрейфа смещений акселерометров, м/с^2/√Гц
+
+    // Шумы/приоры измерений и начального состояния (R, P0/fallback, гейт покоя).
+    double sig_pos = 5.0 / R_EARTH;   // приор позиции, рад (горизонт, по широте)
+    double sig_h = 5.0;               // приор/шум высоты, м
+    double sig_v = 0.1;               // приор/шум скорости, м/с
+    double sig_hdg = 1.0 * DEG_TO_RAD; // приор/шум курса, рад
+
+    // Выставка (AveragingWindow).
+    double align_time_s = 1.0;         // длительность окна выставки, с (по умолчанию)
+
+    // Защита СНС (gnss_guard).
+    double gnss_guard_on = 1.0;           // 1.0 - включить защиту СНС, 0.0 - отключить
+    double gnss_vel_plaus = 500.0;        // максимальная правдоподобная скорость по СНС, м/с
+    double gnss_silence_timeout_s = 5.0;  // таймаут пропадания СНС для перехода в STALE, с
+    double gnss_alt_band_m = 5000.0;      // допустимое отклонение по высоте от первой принятой, м
+    double gnss_dt_max_s = 3600.0;        // максимальный допустимый dt между принятыми кадрами, с
+    double gnss_jump_pos_m = 1000.0;      // порог скачка по позиции между принятыми кадрами, м
+    double gnss_jump_vel_ms = 100.0;      // порог скачка по скорости между принятыми кадрами, м/с
+};
+
+// Глобальная конфигурация по умолчанию.
+inline KalmanConfig kalman_cfg{};
+
+// Параметры процесса Q (дискретизированная, упрощённая форма).
 inline Matrix Qj_matrix(double T)
 {
-    const double sig_g = 3.394e-4;   // шум гироскопа, рад/√с
-    const double sig_a = 3.05e-3;    // шум акселерометра, м/с²/√с
-    const double sig_bg = 1.16e-5;   // дрейф смещения гироскопа, рад/с/√с
-    const double sig_ba = 2e-5;      // дрейф смещения акселерометра, м/с²/√с
+    const double sig_g = kalman_cfg.sig_g;
+    const double sig_a = kalman_cfg.sig_a;
+    const double sig_bg = kalman_cfg.sig_bg;
+    const double sig_ba = kalman_cfg.sig_ba;
 
     const double q_v = sig_a * sig_a * T;
     const double q_att = sig_g * sig_g * T;
@@ -46,26 +76,25 @@ inline Matrix Qj_matrix(double T)
 
     Matrix Qj(KF_STATE * KF_STATE, 0);
     for (int i = 0; i < 3; i++)
-        at(Qj, i, i, KF_STATE) = 0.0;    // координаты — без шума
+        at(Qj, i, i, KF_STATE) = 0.0;    // координаты без шума
     for (int i = 3; i < 6; i++)
-        at(Qj, i, i, KF_STATE) = q_v;    // скорости
+        at(Qj, i, i, KF_STATE) = q_v;    // скорость
     for (int i = 6; i < 9; i++)
         at(Qj, i, i, KF_STATE) = q_att;  // углы
     for (int i = 9; i < 12; i++)
-        at(Qj, i, i, KF_STATE) = q_ba;   // смещения акселя
+        at(Qj, i, i, KF_STATE) = q_ba;   // смещения ба
     for (int i = 12; i < 15; i++)
-        at(Qj, i, i, KF_STATE) = q_bg;   // смещения гиро
+        at(Qj, i, i, KF_STATE) = q_bg;   // смещения бг
     return Qj;
 }
 
-// Матрица шума измерений R (диагональная).
-// Погрешности СНС: координаты ~5 м, высота ~5 м, скорости ~0.1 м/с, углы ~1°.
+// Параметры измерений R (диагональная).
 inline Matrix Rj_matrix()
 {
-    const double sig_pos = 5.0 / R_EARTH;   // позиция в радианах
-    const double sig_h = 5.0;               // высота, м
-    const double sig_v = 0.1;               // скорость, м/с
-    const double sig_ang = 1.0 * DEG_TO_RAD; // угол, рад
+    const double sig_pos = kalman_cfg.sig_pos;
+    const double sig_h = kalman_cfg.sig_h;
+    const double sig_v = kalman_cfg.sig_v;
+    const double sig_ang = kalman_cfg.sig_hdg;
 
     Matrix Rj(KF_MEAS * KF_MEAS, 0);
     const double rdiag[KF_MEAS] = {
@@ -77,17 +106,7 @@ inline Matrix Rj_matrix()
     return Rj;
 }
 
-// Матрица моста F (15×15): связь ошибок ориентации/скорости/координат
-// и дрейфов смещений ДУС/ акселерометра.
-//
-// Блок-схема:
-//   δφ̇ = δVn / R                        (ошибки координат ← ошибки скорости)
-//   δλ̇ = δVe / (R·cos(φ))               (ошибки координат ← ошибки скорости)
-//   δḣ = δVh                             (ошибки координат ← ошибки скорости)
-//   δVė = 2ω_Zem·sin(φ)·δVn + ...       (ошибки скорости ← ошибки координат)
-//   δVė += -f_nav × δψ,θ,φ              (ошибки скорости ← ошибки ориентации)
-//   δVė += C·δba                         (ошибки скорости ← смещения акселя)
-//   δψ̇,θ̇,φ̇ = Ω(ψ,θ,φ)·δbg              (ошибки ориентации ← смещения гиро)
+// Матрица перехода состояний F (15x15).
 inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
                         const Vector &f_nav, const Attitude &att)
 {
@@ -95,19 +114,14 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
 
     Matrix Fj(KF_STATE * KF_STATE, 0);
     for (int i = 0; i < KF_STATE; i++)
-        at(Fj, i, i, KF_STATE) = 1.0;   // единичная диагональ
+        at(Fj, i, i, KF_STATE) = 1.0;
 
-    // δφ̇ = δVn / R
     at(Fj, 0, 3, KF_STATE) = T / R_EARTH;
-    // δλ̇ = δVe / (R·cos(φ))
     at(Fj, 1, 5, KF_STATE) = T / (R_EARTH * fmax(fabs(cos(lat)), 1e-10));
-    // δḣ = δVh
     at(Fj, 2, 4, KF_STATE) = T;
 
-    // Гравитационный градиент: δVė ← δVn (влияние ошибки высоты на вертикальную скорость)
     at(Fj, 4, 2, KF_STATE) = T * 2.0 * g / R_EARTH;
 
-    // δVė ← ошибки ориентации (через крестовое произведение f_nav × n̂)
     const Vector n_psi = {0.0, 1.0, 0.0};
     const Vector n_theta = {sin(att.heading), 0.0, cos(att.heading)};
     const Vector n_gamma = {at(C, 0, 0, 3), at(C, 1, 0, 3), at(C, 2, 0, 3)};
@@ -122,7 +136,6 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
         at(Fj, 3 + r, 8, KF_STATE) = T * d_gamma[r];
     }
 
-    // δVė ← смещения акселерометра (через матрицу направляющих косинусов C)
     for (int j = 0; j < 3; j++)
     {
         at(Fj, 3, 9 + j, KF_STATE) = T * at(C, 0, j, 3);
@@ -130,7 +143,6 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
         at(Fj, 5, 9 + j, KF_STATE) = T * at(C, 2, j, 3);
     }
 
-    // δψ̇,θ̇,φ̇ ← смещения гироскопа (связывающая матрица Эйлера)
     const double cg = cos(att.roll);
     const double sg = sin(att.roll);
     const double cth = cos(att.pitch);
@@ -146,8 +158,7 @@ inline Matrix Fj_matrix(double T, double lat, double alt, const Matrix &C,
     return Fj;
 }
 
-// Этап предсказания (time update):
-//   x = F·x,  P = F·P·F^T + Q
+// Прогноз.
 inline void predict(double T, double lat, double alt, const Matrix &C,
                     const Vector &f_nav, const Attitude &att, Vector &x, Matrix &P)
 {
@@ -160,40 +171,30 @@ inline void predict(double T, double lat, double alt, const Matrix &C,
         Qj_matrix(T), KF_STATE);
 }
 
-// Этап коррекции (measurement update):
-//   z = БИНС − СНС (вектор инновации)
-//   K = P·H^T·(H·P·H^T + R)^{-1}
-//   x = x + K·(z − H·x)
-//   P = (I − K·H)·P
+// Коррекция.
 inline void correct(const Vector &bins, const Vector &sns, Vector &x, Matrix &P)
 {
-    // Инновация: разность БИНС и СНС.
     Vector zj = vector_diff(bins, sns);
     zj[6] = normalize_angle(zj[6]);
     zj[7] = normalize_angle(zj[7]);
     zj[8] = normalize_angle(zj[8]);
 
-    // Матрица наблюдения H: измеряем первые 9 компонент состояния.
     const Matrix Hj = H_matrix(KF_MEAS, KF_STATE);
     const Matrix HTj = transpose_m(Hj, KF_STATE);
 
-    // Ковариация инновации: S = H·P·H^T + R.
     const Matrix P_HTj = multiply_matrix(P, HTj, KF_STATE, KF_MEAS);
     const Matrix S = matrix_sum(
         multiply_matrix(multiply_matrix(Hj, P, KF_STATE, KF_STATE), HTj, KF_STATE, KF_MEAS),
         Rj_matrix(), KF_MEAS);
 
-    // Коэффициент усиления Калмана: K = P·H^T·S^{-1}.
     const Matrix Kj = multiply_matrix(P_HTj, return_matrix(S, KF_MEAS), KF_MEAS, KF_MEAS);
 
-    // Коррекция вектора состояния: x += K·(z − H·x).
     Vector innov = vector_diff(zj, multiply_m(Hj, x, KF_STATE));
     innov[6] = normalize_angle(innov[6]);
     innov[7] = normalize_angle(innov[7]);
     innov[8] = normalize_angle(innov[8]);
     x = vector_sum(x, multiply_m(Kj, innov, KF_MEAS));
 
-    // Коррекция ковариации: P = (I − K·H)·P.
     const Matrix E_KH = matrix_diff(E_matrix(KF_STATE),
                                     multiply_matrix(Kj, Hj, KF_MEAS, KF_STATE), KF_STATE);
     P = multiply_matrix(E_KH, P, KF_STATE, KF_STATE);

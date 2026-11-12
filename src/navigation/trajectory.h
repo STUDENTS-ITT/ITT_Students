@@ -17,6 +17,7 @@
 #include "../math_lib/transformations.h"
 #include "../utils/constants.h"
 #include "../utils/types.h"
+#include "gnss_guard.h"
 #include "gps_processor.h"
 #include "position_calc.h"
 
@@ -95,7 +96,7 @@ inline data_io::NavRecord makeRecord(double time, const NavState &st, const SnsS
 //   2. Раз в SNS_DECIMATION отсчётов (1 Гц) — коррекция по эталону СНС.
 //   3. Запись результатов в файл.
 inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
-                 NavState &st, data_io::NavLogger &log)
+                 NavState &st, data_io::NavLogger &log, SnsGuard &guard)
 {
     const double time_s = ins::sampleTime(row);
     double dt = time_s - st.time_prev;
@@ -141,43 +142,45 @@ inline void step(int i, const std::vector<double> &row, const SnsSample &ref,
     st.rates_prev = rates;
     st.time_prev = time_s;
 
-    // Коррекция по СНС (раз в SNS_DECIMATION = 200 отсчётов, 1 Гц).
+    // Коррекция по СНС (раз в SNS_DECIMATION отсчётов, 1 Гц).
     if (i % SNS_DECIMATION == 0)
     {
-        // Текущее решение БИНС (9 компонент) для вектора инновации.
-        const Vector bins = {st.lat, st.lon, st.alt,
-                             st.V[0], st.V[1], st.V[2],
-                             st.att.heading, st.att.pitch, st.att.roll};
-
-        // Коррекция: x += K·(bins − ref), P = (I − K·H)·P
-        ins::correct(bins, ref.measurement(), st.x, st.P);
-
-        // Курс из вращения Земли (гирокомпасирование).
+        const bool sns_ok = guard.update(ref, time_s, ins::kalman_cfg);
         const double hdg_true = ins::headingFromEarthRate(
             row[ins::IMU_COL_GYRO] - st.bg_static[0],
             row[ins::IMU_COL_GYRO + 2] - st.bg_static[2]);
-        log.writeErrors(time_s, st.x);
-
-        // Применение коррекций фильтра к состоянию.
-        st.lat -= st.x[0];
-        st.lon -= st.x[1];
-        st.alt -= st.x[2];
-        st.V[0] -= st.x[3];
-        st.V[1] -= st.x[4];
-        st.V[2] -= st.x[5];
-        st.att.heading = normalize_angle(st.att.heading - st.x[6]);
-        st.att.pitch = normalize_angle(st.att.pitch - st.x[7]);
-        st.att.roll = normalize_angle(st.att.roll - st.x[8]);
-        for (int k = 0; k < 3; k++)
+        if (sns_ok)
         {
-            st.ba[k] += st.x[9 + k];
-            st.bg[k] += st.x[12 + k];
+            const Vector bins = {st.lat, st.lon, st.alt,
+                                 st.V[0], st.V[1], st.V[2],
+                                 st.att.heading, st.att.pitch, st.att.roll};
+            ins::correct(bins, ref.measurement(), st.x, st.P);
+            log.writeErrors(time_s, st.x);
+            st.lat -= st.x[0];
+            st.lon -= st.x[1];
+            st.alt -= st.x[2];
+            st.V[0] -= st.x[3];
+            st.V[1] -= st.x[4];
+            st.V[2] -= st.x[5];
+            st.att.heading = normalize_angle(st.att.heading - st.x[6]);
+            st.att.pitch = normalize_angle(st.att.pitch - st.x[7]);
+            st.att.roll = normalize_angle(st.att.roll - st.x[8]);
+            for (int k = 0; k < 3; k++)
+            {
+                st.ba[k] += st.x[9 + k];
+                st.bg[k] += st.x[12 + k];
+            }
+            for (int k = 0; k < ins::KF_STATE; k++)
+                st.x[k] = 0.0;
+            log.write(makeRecord(time_s, st, ref, hdg_true, bins[0]));
         }
-        // Обнуление вектора ошибок (поправки применены).
-        for (int k = 0; k < ins::KF_STATE; k++)
-            st.x[k] = 0.0;
-
-        log.write(makeRecord(time_s, st, ref, hdg_true, bins[0]));
+        else
+        {
+            log.writeErrors(time_s, st.x);
+            for (int k = 0; k < ins::KF_STATE; k++)
+                st.x[k] = 0.0;
+            log.write(makeRecord(time_s, st, ref, hdg_true, st.lat));
+        }
     }
 }
 

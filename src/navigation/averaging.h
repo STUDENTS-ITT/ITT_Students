@@ -1,0 +1,138 @@
+// averaging.h — Окно усреднения выставки и оценки начального состояния.
+//
+// Схема (перенос из ITT_Students_NoQT, docs/NOQT_SIGMA_P0_CALCULATION.md):
+//   - по каждому каналу окна считаются среднее mean и максимум отклонения
+//     Δ = max|x(t) − mean|;
+//   - СКО отсчёта  σ̂_sample  = Δ / k(N),  СКО среднего  σ̂_mean =
+//     σ̂_sample / √N,  где k(N) = E[max|N(0,1)|];
+//   - номинал СНС берётся из последнего отсчёта окна (sns_last), поэтому в P₀
+//     для pos/vel/hdg идут σ̂_sample; наклон, ba, bg оценены по среднему —
+//     в P₀ идёт σ̂_mean;
+//   - floors/приоры берутся из ins::kalman_cfg при формировании P₀ (aligner.h).
+//
+// Углы — радианы, длины — метры. Без зависимостей Qt.
+
+#pragma once
+
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "../utils/types.h"
+#include "gps_processor.h"
+
+namespace nav
+{
+
+// Ожидаемый максимум модуля N стандартных нормальных величин:
+// k(N) = E[max|Z₁..Z_N|].
+double maxDeviationFactor(int n);
+
+// Результат окна усреднения.
+struct AveragingResult
+{
+    double t_start = 0.0;   // время первого отсчёта окна, с
+    double t_end = 0.0;     // конец окна (T_align), с
+    int imu_count = 0;      // число отсчётов ИМУ в окне
+    int sns_count = 0;      // число отсчётов СНС в окне
+
+    // --- ИМУ: средние ---
+    Vector f_mean = {0.0, 0.0, 0.0};   // средняя удельная сила, м/с²
+    Vector w_mean = {0.0, 0.0, 0.0};   // средняя угловая скорость, рад/с
+
+    // --- ИМУ: максимумы отклонения от среднего ---
+    Vector df_max = {0.0, 0.0, 0.0};   // удельная сила, м/с²
+    Vector dw_max = {0.0, 0.0, 0.0};   // угловая скорость, рад/с
+
+    // --- ИМУ: СКО из максимумов отклонения ---
+    Vector sig_a_sample = {0.0, 0.0, 0.0};  // СКО отсчёта акселя, м/с²
+    Vector sig_w_sample = {0.0, 0.0, 0.0};  // СКО отсчёта гиро, рад/с
+    Vector sig_a_mean = {0.0, 0.0, 0.0};    // СКО среднего акселя, м/с²
+    Vector sig_w_mean = {0.0, 0.0, 0.0};    // СКО среднего гиро, рад/с
+
+    // --- СНС ---
+    bool has_sns = false;
+    SnsSample sns_last;                 // последний отсчёт окна (номинал)
+    double lat_mean = 0.0;              // средние по окну, рад
+    double lon_mean = 0.0;              // рад
+    double alt_mean = 0.0;              // м
+    double vn_mean = 0.0;               // м/с
+    double vh_mean = 0.0;               // м/с
+    double ve_mean = 0.0;               // м/с
+    double d_lat_max = 0.0;             // максимумы отклонения, м
+    double d_lon_max = 0.0;             // м
+    double d_alt_max = 0.0;             // м
+    double d_v_max = 0.0;               // м/с
+    double sig_pos_sample = 0.0;        // СКО отсчёта позиции (широта), м
+    double sig_pos_lon_sample = 0.0;    // СКО отсчёта позиции (долгота), м
+    double sig_alt_sample = 0.0;        // м
+    double sig_v_sample = 0.0;          // м/с
+
+    // --- Курс (angle.dat / SNS) ---
+    bool has_heading = false;
+    double heading_last = 0.0;          // последний отсчёт курса, рад (номинал)
+    double heading_circ_mean = 0.0;     // круговое среднее курсов окна, рад
+    double d_heading_max = 0.0;         // максимум отклонения, рад
+    double sig_hdg_sample = 0.0;        // СКО отсчёта курса, рад
+
+    // --- Ориентация и смещения ---
+    double pitch = 0.0;                 // уровень по средней удельной силе, рад
+    double roll = 0.0;                  // рад
+    double gyro_compass_heading = 0.0;  // курс по вращению Земли, рад
+    Vector ba_est = {0.0, 0.0, 0.0};    // оценка смещения акселя, м/с²
+    Vector bg_est = {0.0, 0.0, 0.0};    // оценка смещения гиро, рад/с
+    double omega_h_meas = -1.0;         // средний модуль горизонтальной ω, рад/с
+
+    // --- Гейт покоя ---
+    bool rest_ok = false;               // окно признано стоянкой
+    std::string rest_reason;            // причина провала (пусто при rest_ok)
+    double rest_speed = 0.0;            // модуль средней скорости СНС, м/с
+    double rest_omega = 0.0;            // |ω̄ − Cᵀ·ω_Земли|, рад/с
+    double rest_fy = 0.0;               // |f̄_Y − g|, м/с²
+    double rest_speed_limit = 0.0;      // порог по скорости, м/с
+    double rest_omega_limit = 0.0;      // порог по угловой скорости, рад/с
+};
+
+// Накопитель окна усреднения.
+class AveragingWindow
+{
+public:
+    // t_end — конец окна, с (T_align). has_heading_ref — есть ли эталон курса.
+    AveragingWindow(double t_end, bool has_heading_ref);
+
+    // Отсчёт ИМУ. Отсчёты с t > t_end не принимаются.
+    void addImu(double time, double wx, double wy, double wz,
+                double ax, double ay, double az);
+
+    // Отсчёт СНС.
+    void addSns(const SnsSample &s);
+
+    // Итог окна: средние, максимумы отклонений, смещения, гейт покоя.
+    AveragingResult finish(double lat_rad, double alt);
+
+    bool overflowed() const { return overflow_; }
+    std::size_t imuCount() const { return imu_.size(); }
+    std::size_t snsCount() const { return sns_.size(); }
+
+private:
+    struct ImuRow
+    {
+        double t;
+        double w[3];
+        double a[3];
+    };
+
+    struct SnsRow
+    {
+        double t;
+        SnsSample s;
+    };
+
+    double t_end_;
+    bool has_heading_;
+    bool overflow_ = false;
+    std::vector<ImuRow> imu_;
+    std::vector<SnsRow> sns_;
+};
+
+} // namespace nav

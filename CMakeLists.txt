@@ -14,6 +14,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(imitator
     src/main.cpp
     src/navigation/Aligner.cpp
+    src/navigation/averaging.cpp
     src/data_io/data_reader.cpp
     src/data_io/data_writer.cpp
 )

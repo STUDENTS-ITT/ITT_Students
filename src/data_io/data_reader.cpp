@@ -89,34 +89,48 @@ void ImuReader::close()
 }
 
 // Открытие gps.dat и angle.dat, пропуск заголовков.
+// angle_path может быть пустым; при отсутствии углы заполняются нулями.
 bool SnsReader::open(const std::string &gps_path, const std::string &angle_path)
 {
+    has_angle_ = false;
     gps_.open(gps_path);
     if (!gps_.is_open())
     {
         reportOpenError(gps_path);
         return false;
     }
-    angle_.open(angle_path);
-    if (!angle_.is_open())
+    std::getline(gps_, gps_line_); // пропуск заголовка
+
+    if (!angle_path.empty())
     {
-        reportOpenError(angle_path);
-        return false;
+        angle_.open(angle_path);
+        if (angle_.is_open())
+        {
+            std::getline(angle_, angle_line_); // пропуск заголовка
+            has_angle_ = true;
+        }
+        else
+        {
+            // Не ошибка: курс может быть получен gyro-compass.
+            angle_.clear();
+        }
     }
-    std::getline(gps_, gps_line_);      // пропуск заголовка
-    std::getline(angle_, angle_line_);  // пропуск заголовка
     return true;
 }
 
-// Чтение следующей пары строк (gps.dat + angle.dat), заполнение SnsSample.
+// Чтение следующей строки/пары строк, заполнение SnsSample.
 // Координаты из gps.dat переводятся из градусов в радианы.
 bool SnsReader::next(nav::SnsSample &out)
 {
-    while (std::getline(gps_, gps_line_) && std::getline(angle_, angle_line_))
+    while (std::getline(gps_, gps_line_))
     {
+        if (has_angle_ && !std::getline(angle_, angle_line_))
+        {
+            return false;
+        }
+
         const std::vector<std::string> gps = splitLine(gps_line_);
-        const std::vector<std::string> ang = splitLine(angle_line_);
-        if (gps.size() < GPS_MIN_COLS || ang.size() < ANG_MIN_COLS)
+        if (gps.size() < GPS_MIN_COLS)
         {
             continue;
         }
@@ -129,9 +143,19 @@ bool SnsReader::next(nav::SnsSample &out)
         out.vh = std::stod(gps[GPS_COL_VH]);
         out.ve = std::stod(gps[GPS_COL_VE]);
 
-        out.heading = std::stod(ang[ANG_COL_YAW]);
-        out.roll = std::stod(ang[ANG_COL_ROLL]);
-        out.pitch = std::stod(ang[ANG_COL_PITCH]);
+        out.heading = 0.0;
+        out.roll = 0.0;
+        out.pitch = 0.0;
+        if (has_angle_)
+        {
+            const std::vector<std::string> ang = splitLine(angle_line_);
+            if (ang.size() >= ANG_MIN_COLS)
+            {
+                out.heading = std::stod(ang[ANG_COL_YAW]);
+                out.roll = std::stod(ang[ANG_COL_ROLL]);
+                out.pitch = std::stod(ang[ANG_COL_PITCH]);
+            }
+        }
         return true;
     }
     return false;
