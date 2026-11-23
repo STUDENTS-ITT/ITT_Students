@@ -1,6 +1,6 @@
 // averaging.h — Окно усреднения выставки и оценки начального состояния.
 //
-// Схема (перенос из ITT_Students_NoQT, docs/NOQT_SIGMA_P0_CALCULATION.md):
+// Схема расчёта сигм и ковариации:
 //   - по каждому каналу окна считаются среднее mean и максимум отклонения
 //     Δ = max|x(t) − mean|;
 //   - СКО отсчёта  σ̂_sample  = Δ / k(N),  СКО среднего  σ̂_mean =
@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 #include "gps_processor.h"
 
 namespace nav

@@ -1,5 +1,5 @@
 // averaging.cpp — Окно усреднения выставки: статистики, смещения, гейт покоя.
-// Перенос/адаптация из ITT_Students_NoQT (без Qt).
+// Окно усреднения для выставки (адаптация эталонной реализации).
 
 #include "averaging.h"
 
@@ -7,7 +7,8 @@
 
 #include "../ins/ins_filter.h"  // ins::kalman_cfg (порог скорости гейта)
 #include "../math_lib/transformations.h"
-#include "../utils/constants.h"
+#include "../common/constants.h"
+#include "../math_lib/gravity.h"
 
 namespace nav
 {

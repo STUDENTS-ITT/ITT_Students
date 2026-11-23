@@ -10,7 +10,7 @@
 #include <fstream>
 #include <string>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 
 namespace data_io
 {

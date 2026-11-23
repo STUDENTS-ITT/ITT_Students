@@ -15,7 +15,8 @@
 #include "../ins/ins_filter.h"
 #include "../math_lib/matrix_ops.h"
 #include "../math_lib/transformations.h"
-#include "../utils/constants.h"
+#include "../common/constants.h"
+#include "../math_lib/gravity.h"
 #include "averaging.h"
 #include "gps_processor.h"
 #include "trajectory.h"
@@ -80,7 +81,7 @@ inline Matrix initialCovariance()
     return P0;
 }
 
-// P₀ по окну усреднения (перенос из ITT_Students_NoQT).
+// P₀ по окну усреднения.
 // Номинал pos/vel/hdg — последний отсчёт окна => σ_sample; наклон/ba/bg —
 // оценки по среднему => σ_mean. При !rest_ok — паспортный fallback.
 inline Matrix initialCovarianceFromAveraging(const ins::KalmanConfig &cfg,
@@ -147,7 +148,7 @@ inline Matrix initialCovarianceFromAveraging(const ins::KalmanConfig &cfg,
     return P0;
 }
 
-// Начальные ошибки x₀ по окну усреднения (перенос из ITT_Students_NoQT).
+// Начальные ошибки x₀ по окну усреднения.
 // Номинал pos/vel/hdg — последний отсчёт окна, поэтому x₀ = last - mean.
 // ba не вносится в x₀ (номинал state.ba = ba_est), bg вносится в x₀[12..14]
 // (номинал state.bg = 0, оценка применяется первой коррекцией).

@@ -13,8 +13,9 @@
 #include "../math_lib/interpolation.h"
 #include "../math_lib/matrix_ops.h"
 #include "../math_lib/transformations.h"
-#include "../utils/constants.h"
-#include "../utils/types.h"
+#include "../common/constants.h"
+#include "../math_lib/gravity.h"
+#include "../common/types.h"
 
 namespace nav
 {

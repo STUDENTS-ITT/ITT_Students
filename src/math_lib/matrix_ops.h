@@ -17,7 +17,7 @@
 #include <iostream>
 #include <utility>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 
 // Доступ к элементу матрицы по индексам (i, j) и числу столбцов.
 inline double &at(Matrix &A, int i, int j, int cols)

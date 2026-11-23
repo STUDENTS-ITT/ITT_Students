@@ -1,4 +1,4 @@
-// gnss_guard.h - защита измерений СНС (уровни 1-2) по образцу NoQT.
+// gnss_guard.h - защита измерений СНС (уровни 1-2).
 //
 // Проверки уровня 1: не конечные значения, диапазоны, zero-fix, правдоподобие скорости,
 // полоса по высоте, проверка dt, скачки позиции/скорости.
@@ -12,7 +12,7 @@
 #include <cstddef>
 
 #include "../ins/ins_filter.h"
-#include "../utils/constants.h"
+#include "../common/constants.h"
 #include "gps_processor.h"
 
 namespace nav

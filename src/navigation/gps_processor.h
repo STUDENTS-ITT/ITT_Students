@@ -9,7 +9,7 @@
 
 #include <cmath>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 
 namespace nav
 {

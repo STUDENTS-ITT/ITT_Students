@@ -7,7 +7,7 @@
 
 #include <cstddef>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 
 // Одномерная интеграция: V = V0 + (a_now + a_pred)/2 * dt (метод трапеций).
 inline double v_integral(double v_now_dot, double V0, double v_pred_dot, double dt)

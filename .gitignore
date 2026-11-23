@@ -1,6 +1,7 @@
 # сборка
 build/
 **/build/
+build_*/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
@@ -29,16 +30,16 @@ camera/images/
 lidar/
 
 # промежуточные файлы фильтра, их собирает run_eval.ps1
-add-kalman-report/data/vo_hk03/*.dat
-add-kalman-report/data/vo_hk03/StartupNav.ini
-add-kalman-report/data/processed/
-add-kalman-report/tools/result.txt
-add-kalman-report/tools/reference.txt
-add-kalman-report/tools/errors.txt
-results_fusion/result.txt
+experiments/add-kalman-report/data/vo_hk03/*.dat
+experiments/add-kalman-report/data/vo_hk03/StartupNav.ini
+experiments/add-kalman-report/data/processed/
+experiments/add-kalman-report/tools/result.txt
+experiments/add-kalman-report/tools/reference.txt
+experiments/add-kalman-report/tools/errors.txt
+results/fusion/result.txt
 
 # отладочные картинки совпадений
-results_HKairport03/**/matches/
+results/HKairport03/**/matches/
 
 # видео
 *.mp4

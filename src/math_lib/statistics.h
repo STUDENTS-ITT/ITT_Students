@@ -13,8 +13,8 @@
 #include <cmath>
 #include <cstddef>
 
-#include "../utils/constants.h"
-#include "../utils/types.h"
+#include "../common/constants.h"
+#include "../common/types.h"
 
 // Среднее арифметическое элементов вектора, результат в градусах.
 inline double Average(const Vector &angle)

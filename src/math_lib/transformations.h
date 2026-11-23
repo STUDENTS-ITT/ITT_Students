@@ -11,8 +11,8 @@
 
 #include <cmath>
 
-#include "../utils/constants.h"
-#include "../utils/types.h"
+#include "../common/constants.h"
+#include "../common/types.h"
 #include "matrix_ops.h"
 
 // Приведение угла к диапазону [-π, π].

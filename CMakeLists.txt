@@ -7,13 +7,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Исполнимый файл: БИНС с фильтром Калмана 15-го порядка.
 # Исходники:
-#   main.cpp              — точка входа, цикл счисления
-#   Aligner.cpp           — автономная выставка (Median + EMA фильтры)
+#   main.cpp              — точка входа, цикл счисления и выставка
+#   averaging.cpp         — окно усреднения выставки (актуальная реализация)
 #   data_reader.cpp       — чтение imu.dat, gps.dat, angle.dat
 #   data_writer.cpp       — запись траектории и ошибок фильтра
 add_executable(imitator
-    src/main.cpp
-    src/navigation/Aligner.cpp
+    src/app/imitator/main.cpp
     src/navigation/averaging.cpp
     src/data_io/data_reader.cpp
     src/data_io/data_writer.cpp

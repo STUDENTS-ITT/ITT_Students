@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "../utils/types.h"
+#include "../common/types.h"
 
 namespace ins
 {
